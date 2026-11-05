@@ -1,0 +1,15 @@
+node_modules/
+dist/
+coverage/
+.env
+.env.*
+!.env.example
+generated/
+uploads/
+*.log
+.agents/
+.claude/
+.windsurf/
+skills-lock.json
+.DS_Store
+Thumbs.db
