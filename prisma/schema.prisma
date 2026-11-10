@@ -1,0 +1,441 @@
+// Modelo de datos de CreaFácil (DERCAS v1.0, RNF-08).
+//
+// Convenciones:
+// - Modelos y campos en español (camelCase); tablas y columnas en snake_case con @@map / @map.
+// - Ids UUID nativos de PostgreSQL: no son secuenciales ni adivinables (refuerza RN-05).
+// - Importes en Decimal(12, 2) y factores en Decimal(4, 2): nunca Float, para que las
+//   cotizaciones sean exactas y reproducibles (RF-07).
+// - Las fechas de calendario (fecha deseada, inicio y entrega previstas) usan @db.Date.
+// - Lo que el DERCAS pide "desactivar sin borrar" (RF-05) lleva un campo activo/activa.
+// - Restricciones CHECK adicionales (importes >= 0, fechas coherentes, origen del pedido)
+//   se añaden en SQL dentro de la migración inicial: Prisma no las modela, pero tampoco las borra.
+
+generator client {
+  provider               = "prisma-client"
+  output                 = "../src/generated/prisma"
+  moduleFormat           = "esm"
+  runtime                = "nodejs"
+  importFileExtension    = "js"
+  generatedFileExtension = "ts"
+}
+
+// La URL de conexión se define en prisma.config.ts (Prisma 7).
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------------------
+// Enumeraciones
+// ---------------------------------------------------------------------------
+
+/// RF-02, RNF-03: perfiles con permisos distintos.
+enum Rol {
+  CLIENTE
+  ADMIN
+}
+
+/// RF-07, RF-08: nivel de complejidad del diseño; cada nivel tiene su factor en ConfiguracionPrecios.
+enum NivelComplejidad {
+  BAJA
+  MEDIA
+  ALTA
+}
+
+/// RF-11: estados de la cotización (pendiente → enviada → aceptada | rechazada).
+enum EstadoCotizacion {
+  PENDIENTE
+  ENVIADA
+  ACEPTADA
+  RECHAZADA
+}
+
+/// RF-10, RF-11, RF-12, RF-21: estado de la solicitud. Usa el mismo vocabulario que RF-11;
+/// solo una solicitud ACEPTADA puede convertirse en pedido (RF-12).
+enum EstadoSolicitud {
+  PENDIENTE
+  ENVIADA
+  ACEPTADA
+  RECHAZADA
+}
+
+/// RF-13: estados del pedido.
+enum EstadoPedido {
+  PENDIENTE
+  EN_PROCESO
+  LISTO
+  ENTREGADO
+  CANCELADO
+}
+
+/// RF-20: los cuatro eventos que el DERCAS pide notificar al cliente.
+enum TipoNotificacion {
+  COTIZACION_DISPONIBLE
+  PEDIDO_ACEPTADO
+  CAMBIO_ESTADO_PEDIDO
+  ENTREGA_PROXIMA
+}
+
+/// RF-24, RNF-09: plataforma del dispositivo registrado para FCM.
+enum PlataformaDispositivo {
+  ANDROID
+  WEB
+  IOS
+}
+
+// ---------------------------------------------------------------------------
+// Acceso y perfiles (RF-01, RF-02, RNF-01)
+// ---------------------------------------------------------------------------
+
+model Usuario {
+  id           String   @id @default(uuid()) @db.Uuid
+  nombre       String   @db.VarChar(120)
+  /// Se guarda normalizado en minúsculas (lo hace el servicio).
+  email        String   @unique @db.VarChar(254)
+  /// Hash bcrypt; nunca la contraseña en texto legible (RNF-01).
+  passwordHash String   @map("password_hash") @db.VarChar(100)
+  telefono     String?  @db.VarChar(30)
+  rol          Rol      @default(CLIENTE)
+  /// Permite desactivar una cuenta sin borrar su historial.
+  activo       Boolean  @default(true)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  cotizaciones          Cotizacion[]
+  solicitudes           Solicitud[]
+  pedidos               Pedido[]
+  cambiosEstadoPedido   HistorialEstadoPedido[]
+  notificaciones        Notificacion[]
+  dispositivos          DispositivoFcm[]
+  configuracionesPrecio ConfiguracionPrecios[]
+
+  @@index([rol])
+  @@map("usuarios")
+}
+
+// ---------------------------------------------------------------------------
+// Catálogo (RF-03, RF-04, RF-05, RF-22)
+// ---------------------------------------------------------------------------
+
+model Categoria {
+  id          String   @id @default(uuid()) @db.Uuid
+  nombre      String   @unique @db.VarChar(80)
+  descripcion String?
+  /// RF-03: el catálogo solo muestra categorías activas.
+  activa      Boolean  @default(true)
+  /// Orden de aparición en el catálogo.
+  orden       Int      @default(0)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  servicios Servicio[]
+
+  @@index([activa, orden])
+  @@map("categorias")
+}
+
+model Servicio {
+  id                      String   @id @default(uuid()) @db.Uuid
+  categoriaId             String   @map("categoria_id") @db.Uuid
+  nombre                  String   @db.VarChar(120)
+  descripcion             String
+  /// RF-04: texto libre, por ejemplo "60 x 40 cm" o "pared de hasta 3 m".
+  dimensionesOrientativas String?  @map("dimensiones_orientativas") @db.VarChar(200)
+  observaciones           String?
+  /// RF-05: desactivar sin borrar. Un servicio inactivo no se muestra a los clientes.
+  activo                  Boolean  @default(true)
+  /// Precio "desde" orientativo para la ficha; la cotización se calcula con RF-07.
+  precioBaseReferencial   Decimal? @map("precio_base_referencial") @db.Decimal(12, 2)
+  /// RF-07: horas de mano de obra de referencia que la administradora puede proponer para el cálculo.
+  horasManoObraReferencia Decimal? @map("horas_mano_obra_referencia") @db.Decimal(8, 2)
+  createdAt               DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt               DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  /// Una categoría con servicios no se puede borrar: se desactiva.
+  categoria            Categoria          @relation(fields: [categoriaId], references: [id], onDelete: Restrict)
+  imagenes             ImagenServicio[]
+  materialesHabituales ServicioMaterial[]
+  cotizaciones         Cotizacion[]
+  solicitudes          Solicitud[]
+
+  @@unique([categoriaId, nombre])
+  @@index([activo])
+  @@map("servicios")
+}
+
+/// RF-04: fotografías de referencia de la ficha del servicio.
+model ImagenServicio {
+  id               String   @id @default(uuid()) @db.Uuid
+  servicioId       String   @map("servicio_id") @db.Uuid
+  url              String   @db.VarChar(500)
+  /// Texto alternativo para accesibilidad (RNF-05).
+  textoAlternativo String?  @map("texto_alternativo") @db.VarChar(200)
+  orden            Int      @default(0)
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  servicio Servicio @relation(fields: [servicioId], references: [id], onDelete: Cascade)
+
+  @@index([servicioId, orden])
+  @@map("imagenes_servicio")
+}
+
+/// RF-04: materiales habituales de un servicio (relación muchos a muchos con datos propios).
+model ServicioMaterial {
+  servicioId          String   @map("servicio_id") @db.Uuid
+  materialId          String   @map("material_id") @db.Uuid
+  /// Cantidad orientativa para proponerla en la cotización (RF-06).
+  cantidadReferencial Decimal? @map("cantidad_referencial") @db.Decimal(10, 2)
+
+  servicio Servicio @relation(fields: [servicioId], references: [id], onDelete: Cascade)
+  material Material @relation(fields: [materialId], references: [id], onDelete: Restrict)
+
+  @@id([servicioId, materialId])
+  @@index([materialId])
+  @@map("servicios_materiales")
+}
+
+/// RF-08, RF-22: materiales con su precio unitario configurable.
+model Material {
+  id             String   @id @default(uuid()) @db.Uuid
+  nombre         String   @unique @db.VarChar(120)
+  descripcion    String?
+  /// Unidad de medida o de compra: "lámina", "frasco 250 ml", "unidad"...
+  unidad         String   @db.VarChar(40)
+  /// Precio vigente en dólares. Las cotizaciones copian el valor del momento (RF-07, RN-02).
+  precioUnitario Decimal  @map("precio_unitario") @db.Decimal(12, 2)
+  activo         Boolean  @default(true)
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  servicios          ServicioMaterial[]
+  detallesCotizacion DetalleCotizacionMaterial[]
+
+  @@index([activo])
+  @@map("materiales")
+}
+
+// ---------------------------------------------------------------------------
+// Cotización dinámica (RF-06, RF-07, RF-08, RF-09, RF-11, RN-01)
+// ---------------------------------------------------------------------------
+
+/// RF-08: tarifa de mano de obra y factores de complejidad, versionada.
+/// Cada cambio crea una fila nueva y cierra la anterior (vigenteHasta); la vigente es la que
+/// tiene vigenteHasta = null. Así un cambio solo afecta a las cotizaciones nuevas.
+model ConfiguracionPrecios {
+  id                     String    @id @default(uuid()) @db.Uuid
+  /// Costo de una hora de mano de obra, en dólares.
+  costoManoObraHora      Decimal   @map("costo_mano_obra_hora") @db.Decimal(12, 2)
+  /// Multiplicadores por nivel de complejidad (1.00 = sin recargo).
+  factorComplejidadBaja  Decimal   @map("factor_complejidad_baja") @db.Decimal(4, 2)
+  factorComplejidadMedia Decimal   @map("factor_complejidad_media") @db.Decimal(4, 2)
+  factorComplejidadAlta  Decimal   @map("factor_complejidad_alta") @db.Decimal(4, 2)
+  vigenteDesde           DateTime  @default(now()) @map("vigente_desde") @db.Timestamptz(3)
+  vigenteHasta           DateTime? @map("vigente_hasta") @db.Timestamptz(3)
+  /// Administradora que registró el cambio (nulo en la configuración del seed).
+  creadaPorId            String?   @map("creada_por_id") @db.Uuid
+  createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  creadaPor    Usuario?     @relation(fields: [creadaPorId], references: [id], onDelete: SetNull)
+  cotizaciones Cotizacion[]
+
+  @@index([vigenteHasta])
+  @@map("configuraciones_precios")
+}
+
+model Cotizacion {
+  id                     String           @id @default(uuid()) @db.Uuid
+  clienteId              String           @map("cliente_id") @db.Uuid
+  /// RF-06: tipo de trabajo.
+  servicioId             String           @map("servicio_id") @db.Uuid
+  /// Tarifa usada en el cálculo (RF-07, RF-08).
+  configuracionPreciosId String           @map("configuracion_precios_id") @db.Uuid
+  /// RF-06: dimensiones del trabajo, en centímetros (opcionales según el tipo de trabajo).
+  anchoCm                Decimal?         @map("ancho_cm") @db.Decimal(10, 2)
+  altoCm                 Decimal?         @map("alto_cm") @db.Decimal(10, 2)
+  /// RF-06: número de piezas o unidades del encargo.
+  cantidad               Int              @default(1)
+  /// RF-06: detalles del diseño.
+  detallesDiseno         String           @map("detalles_diseno")
+  complejidad            NivelComplejidad
+  /// Valores COPIADOS de la configuración al calcular, para que el resultado sea reproducible (RF-07).
+  horasManoObra          Decimal          @map("horas_mano_obra") @db.Decimal(8, 2)
+  costoManoObraHora      Decimal          @map("costo_mano_obra_hora") @db.Decimal(12, 2)
+  factorComplejidad      Decimal          @map("factor_complejidad") @db.Decimal(4, 2)
+  subtotalMateriales     Decimal          @map("subtotal_materiales") @db.Decimal(12, 2)
+  costoManoObra          Decimal          @map("costo_mano_obra") @db.Decimal(12, 2)
+  /// RF-07: valor aproximado calculado por el servidor.
+  valorEstimado          Decimal          @map("valor_estimado") @db.Decimal(12, 2)
+  /// RF-11: precio ajustado y confirmado por la administradora.
+  precioFinal            Decimal?         @map("precio_final") @db.Decimal(12, 2)
+  /// RN-01: true hasta que la administradora confirme el precio definitivo.
+  esEstimada             Boolean          @default(true) @map("es_estimada")
+  estado                 EstadoCotizacion @default(PENDIENTE)
+  /// RF-11: comentario de la administradora para el cliente.
+  observacionesAdmin     String?          @map("observaciones_admin")
+  /// RF-23: fechas para los reportes de cotizaciones enviadas, aceptadas y rechazadas.
+  enviadaEn              DateTime?        @map("enviada_en") @db.Timestamptz(3)
+  respondidaEn           DateTime?        @map("respondida_en") @db.Timestamptz(3)
+  createdAt              DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt              DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  cliente              Usuario                     @relation(fields: [clienteId], references: [id], onDelete: Restrict)
+  servicio             Servicio                    @relation(fields: [servicioId], references: [id], onDelete: Restrict)
+  configuracionPrecios ConfiguracionPrecios        @relation(fields: [configuracionPreciosId], references: [id], onDelete: Restrict)
+  materiales           DetalleCotizacionMaterial[]
+  solicitud            Solicitud?
+  pedido               Pedido?
+
+  @@index([clienteId, createdAt])
+  @@index([estado, createdAt])
+  @@index([servicioId])
+  @@map("cotizaciones")
+}
+
+/// RF-06, RF-07: materiales y cantidades de una cotización con el precio copiado al calcular.
+model DetalleCotizacionMaterial {
+  id             String  @id @default(uuid()) @db.Uuid
+  cotizacionId   String  @map("cotizacion_id") @db.Uuid
+  materialId     String  @map("material_id") @db.Uuid
+  cantidad       Decimal @db.Decimal(10, 2)
+  /// Precio unitario del material en el momento del cálculo (copia, no relación).
+  precioUnitario Decimal @map("precio_unitario") @db.Decimal(12, 2)
+  subtotal       Decimal @db.Decimal(12, 2)
+
+  cotizacion Cotizacion @relation(fields: [cotizacionId], references: [id], onDelete: Cascade)
+  material   Material   @relation(fields: [materialId], references: [id], onDelete: Restrict)
+
+  @@unique([cotizacionId, materialId])
+  @@index([materialId])
+  @@map("detalles_cotizacion_materiales")
+}
+
+// ---------------------------------------------------------------------------
+// Solicitudes y pedidos (RF-10 a RF-14, RF-16, RF-21, RN-02, RN-03)
+// ---------------------------------------------------------------------------
+
+model Solicitud {
+  id           String          @id @default(uuid()) @db.Uuid
+  clienteId    String          @map("cliente_id") @db.Uuid
+  /// Tipo de trabajo, si el cliente lo eligió del catálogo (RF-23: servicios más solicitados).
+  servicioId   String?         @map("servicio_id") @db.Uuid
+  /// Cotización de la que parte la solicitud (una cotización origina como mucho una solicitud).
+  cotizacionId String?         @unique @map("cotizacion_id") @db.Uuid
+  descripcion  String
+  /// RF-10: fecha deseada por el cliente. RN-03: las pendientes se muestran como tentativas (RF-19).
+  fechaDeseada DateTime        @map("fecha_deseada") @db.Date
+  estado       EstadoSolicitud @default(PENDIENTE)
+  createdAt    DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime        @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  cliente    Usuario           @relation(fields: [clienteId], references: [id], onDelete: Restrict)
+  servicio   Servicio?         @relation(fields: [servicioId], references: [id], onDelete: SetNull)
+  cotizacion Cotizacion?       @relation(fields: [cotizacionId], references: [id], onDelete: SetNull)
+  imagenes   ImagenSolicitud[]
+  pedido     Pedido?
+
+  @@index([clienteId, createdAt])
+  @@index([estado, fechaDeseada])
+  @@map("solicitudes")
+}
+
+/// RF-10: imágenes de referencia que adjunta el cliente.
+model ImagenSolicitud {
+  id          String   @id @default(uuid()) @db.Uuid
+  solicitudId String   @map("solicitud_id") @db.Uuid
+  url         String   @db.VarChar(500)
+  orden       Int      @default(0)
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  solicitud Solicitud @relation(fields: [solicitudId], references: [id], onDelete: Cascade)
+
+  @@index([solicitudId, orden])
+  @@map("imagenes_solicitud")
+}
+
+model Pedido {
+  id                   String       @id @default(uuid()) @db.Uuid
+  clienteId            String       @map("cliente_id") @db.Uuid
+  /// Origen del pedido (RF-12). Cada solicitud o cotización genera como mucho un pedido.
+  /// La migración exige con un CHECK que al menos uno de los dos exista.
+  solicitudId          String?      @unique @map("solicitud_id") @db.Uuid
+  cotizacionId         String?      @unique @map("cotizacion_id") @db.Uuid
+  /// RN-02: COPIA del precio acordado; no cambia aunque cambien los costos de los materiales.
+  precioAcordado       Decimal      @map("precio_acordado") @db.Decimal(12, 2)
+  /// RF-16: fechas previstas y duración estimada (agenda RF-15 y cruces RF-17).
+  fechaInicioPrevista  DateTime     @map("fecha_inicio_prevista") @db.Date
+  fechaEntregaPrevista DateTime     @map("fecha_entrega_prevista") @db.Date
+  duracionEstimadaDias Int          @map("duracion_estimada_dias")
+  estado               EstadoPedido @default(PENDIENTE)
+  notas                String?
+  /// RF-23: fecha real de entrega para el reporte de ingresos registrados.
+  entregadoEn          DateTime?    @map("entregado_en") @db.Timestamptz(3)
+  createdAt            DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt            DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  cliente    Usuario                 @relation(fields: [clienteId], references: [id], onDelete: Restrict)
+  solicitud  Solicitud?              @relation(fields: [solicitudId], references: [id], onDelete: Restrict)
+  cotizacion Cotizacion?             @relation(fields: [cotizacionId], references: [id], onDelete: Restrict)
+  historial  HistorialEstadoPedido[]
+
+  @@index([clienteId, createdAt])
+  @@index([estado])
+  /// RF-15, RF-17: búsqueda de pedidos por rango de fechas en la agenda.
+  @@index([fechaInicioPrevista, fechaEntregaPrevista])
+  @@map("pedidos")
+}
+
+/// RF-13: el historial conserva cada cambio de estado del pedido.
+model HistorialEstadoPedido {
+  id             String        @id @default(uuid()) @db.Uuid
+  pedidoId       String        @map("pedido_id") @db.Uuid
+  /// Nulo en el registro de creación del pedido.
+  estadoAnterior EstadoPedido? @map("estado_anterior")
+  estadoNuevo    EstadoPedido  @map("estado_nuevo")
+  /// Usuario que hizo el cambio. Los usuarios se desactivan, no se borran.
+  usuarioId      String        @map("usuario_id") @db.Uuid
+  comentario     String?
+  fecha          DateTime      @default(now()) @db.Timestamptz(3)
+
+  pedido  Pedido  @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
+  usuario Usuario @relation(fields: [usuarioId], references: [id], onDelete: Restrict)
+
+  @@index([pedidoId, fecha])
+  @@map("historial_estados_pedido")
+}
+
+// ---------------------------------------------------------------------------
+// Notificaciones (RF-20, RNF-09)
+// ---------------------------------------------------------------------------
+
+model Notificacion {
+  id           String           @id @default(uuid()) @db.Uuid
+  usuarioId    String           @map("usuario_id") @db.Uuid
+  tipo         TipoNotificacion
+  titulo       String           @db.VarChar(120)
+  mensaje      String
+  leida        Boolean          @default(false)
+  leidaEn      DateTime?        @map("leida_en") @db.Timestamptz(3)
+  /// Id de la cotización o del pedido al que se refiere (el tipo indica cuál).
+  referenciaId String?          @map("referencia_id") @db.Uuid
+  createdAt    DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  usuario Usuario @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+
+  @@index([usuarioId, leida, createdAt])
+  @@index([tipo, referenciaId])
+  @@map("notificaciones")
+}
+
+/// RF-20, RNF-09: tokens de Firebase Cloud Messaging de cada dispositivo.
+model DispositivoFcm {
+  id         String                @id @default(uuid()) @db.Uuid
+  usuarioId  String                @map("usuario_id") @db.Uuid
+  token      String                @unique @db.VarChar(512)
+  plataforma PlataformaDispositivo
+  createdAt  DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  usuario Usuario @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+
+  @@index([usuarioId])
+  @@map("dispositivos_fcm")
+}
