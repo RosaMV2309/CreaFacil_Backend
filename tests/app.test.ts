@@ -2,15 +2,9 @@ import request from 'supertest';
 import { describe, expect, it } from 'vitest';
 
 import { crearApp } from '../src/app.js';
-import { cargarEnv } from '../src/config/env.js';
+import { envDePrueba } from './helpers.js';
 
-const app = crearApp(
-  cargarEnv({
-    NODE_ENV: 'test',
-    DATABASE_URL: 'postgresql://usuario:clave@localhost:5432/creafacil_test',
-    JWT_SECRET: 'x'.repeat(32),
-  }),
-);
+const app = crearApp(envDePrueba);
 
 describe('app', () => {
   it('responde con la información de la API en JSON', async () => {
