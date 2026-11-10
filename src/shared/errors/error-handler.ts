@@ -86,7 +86,8 @@ export const manejadorErrores: ErrorRequestHandler = (error: unknown, _req, res,
     return;
   }
   const appError = normalizarError(error);
-  if (appError.estado >= 500) {
+  // Solo se registran los fallos inesperados (500); los errores previstos (4xx, 501) no son fallos.
+  if (appError.estado === 500) {
     console.error('[ERROR]', error);
   }
   responderError(res, appError);

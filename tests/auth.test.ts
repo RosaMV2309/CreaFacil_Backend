@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import request from 'supertest';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { auth, extraerToken, guardarUsuario, type Rol } from '../src/shared/middlewares/auth.js';
 import { requireRole } from '../src/shared/middlewares/require-role.js';
@@ -30,9 +30,13 @@ describe('auth (esqueleto hasta RF-01)', () => {
   });
 
   it('nunca concede acceso todavía: con token responde 501 NO_IMPLEMENTADO', async () => {
+    const consola = vi.spyOn(console, 'error');
     const res = await request(app).get('/privada').set('Authorization', 'Bearer cualquiera');
     expect(res.status).toBe(501);
     expect((res.body as { error: { codigo: string } }).error.codigo).toBe('NO_IMPLEMENTADO');
+    // Es una respuesta prevista: no se registra como fallo (ni el token en los logs, RNF-01).
+    expect(consola).not.toHaveBeenCalled();
+    consola.mockRestore();
   });
 });
 
