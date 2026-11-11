@@ -50,6 +50,19 @@ export interface HealthService {
   obtenerEstado(): Promise<EstadoSalud>;
 }
 
+/**
+ * Resume un error para el registro del servidor. Con el adaptador PrismaPg el mensaje de Prisma
+ * no trae el motivo ("Invalid `prisma.$queryRaw()` invocation:"), pero sí `code` (p. ej. ECONNREFUSED).
+ */
+export function describirError(error: unknown): string {
+  if (!(error instanceof Error)) return String(error);
+  const primeraLinea = error.message.split('\n').find((linea) => linea.trim() !== '') ?? '';
+  const codigo = (error as { code?: unknown }).code;
+  return typeof codigo === 'string' && codigo !== ''
+    ? `[${codigo}] ${primeraLinea.trim()}`.trim()
+    : primeraLinea.trim();
+}
+
 function registrarEnConsola(mensaje: string): void {
   console.error(`[health] La base de datos no responde: ${mensaje}`);
 }
@@ -83,7 +96,7 @@ export function crearHealthService(
       await conTiempoLimite(repositorio.comprobarBaseDatos(), tiempoLimiteMs);
       return 'ok';
     } catch (error) {
-      registrarError(error instanceof Error ? error.message : String(error));
+      registrarError(describirError(error));
       return 'error';
     }
   }

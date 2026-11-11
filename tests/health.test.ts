@@ -6,7 +6,11 @@ import {
   crearHealthRepository,
   type HealthRepository,
 } from '../src/modules/health/health.repository.js';
-import { crearHealthService, type Reloj } from '../src/modules/health/health.service.js';
+import {
+  crearHealthService,
+  describirError,
+  type Reloj,
+} from '../src/modules/health/health.service.js';
 import type { PrismaClient } from '../src/shared/database/prisma.js';
 import { crearPrismaSinBaseDatos, envDePrueba } from './helpers.js';
 
@@ -74,6 +78,22 @@ describe('crearHealthService (repositorio simulado)', () => {
       baseDatos: 'error',
     });
     expect(registrarError).toHaveBeenCalledWith('sin respuesta en 20 ms');
+  });
+});
+
+describe('describirError', () => {
+  it('incluye el código del error de Prisma cuando el mensaje no trae el motivo', () => {
+    const error = Object.assign(new Error('\nInvalid `prisma.$queryRaw()` invocation:\n\n\n'), {
+      code: 'ECONNREFUSED',
+    });
+    expect(describirError(error)).toBe('[ECONNREFUSED] Invalid `prisma.$queryRaw()` invocation:');
+  });
+
+  it('usa la primera línea del mensaje si no hay código', () => {
+    expect(describirError(new Error('sin respuesta en 20 ms\nmás detalle'))).toBe(
+      'sin respuesta en 20 ms',
+    );
+    expect(describirError('texto')).toBe('texto');
   });
 });
 
