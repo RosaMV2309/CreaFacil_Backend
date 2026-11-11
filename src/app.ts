@@ -4,10 +4,19 @@ import helmet from 'helmet';
 
 import type { Env } from './config/env.js';
 import { crearRouterApi } from './routes.js';
+import type { PrismaClient } from './shared/database/prisma.js';
 import { manejador404, manejadorErrores } from './shared/errors/index.js';
 import { registroPeticiones } from './shared/middlewares/request-logger.js';
 
-export function crearApp(env: Env): Express {
+/**
+ * Dependencias externas de la aplicación. Se inyectan para que las pruebas decidan
+ * a qué base de datos se conecta la app (o usen una sin PostgreSQL).
+ */
+export interface DependenciasApp {
+  prisma: PrismaClient;
+}
+
+export function crearApp(env: Env, dependencias: DependenciasApp): Express {
   const app = express();
 
   app.disable('x-powered-by');
@@ -18,7 +27,7 @@ export function crearApp(env: Env): Express {
   }
   app.use(express.json({ limit: '1mb' }));
 
-  app.use('/api/v1', crearRouterApi(env));
+  app.use('/api/v1', crearRouterApi(env, dependencias));
 
   // Siempre al final: 404 en JSON y manejador central de errores (RNF-02).
   app.use(manejador404);
