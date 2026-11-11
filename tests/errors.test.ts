@@ -2,11 +2,10 @@ import { Router } from 'express';
 import request from 'supertest';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { crearApp } from '../src/app.js';
 import { AppError, normalizarError } from '../src/shared/errors/index.js';
-import { crearAppDePrueba, envDePrueba } from './helpers.js';
+import { crearAppDePrueba, crearAppSinBaseDatos } from './helpers.js';
 
-const app = crearApp(envDePrueba);
+const app = crearAppSinBaseDatos();
 
 afterEach(() => {
   vi.restoreAllMocks();

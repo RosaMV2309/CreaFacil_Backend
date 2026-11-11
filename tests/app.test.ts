@@ -1,10 +1,9 @@
 import request from 'supertest';
 import { describe, expect, it } from 'vitest';
 
-import { crearApp } from '../src/app.js';
-import { envDePrueba } from './helpers.js';
+import { crearAppSinBaseDatos } from './helpers.js';
 
-const app = crearApp(envDePrueba);
+const app = crearAppSinBaseDatos();
 
 describe('app', () => {
   it('responde con la información de la API en JSON', async () => {

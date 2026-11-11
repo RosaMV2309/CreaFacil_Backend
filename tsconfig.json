@@ -23,6 +23,6 @@
     "skipLibCheck": true,
     "sourceMap": true
   },
-  "include": ["src", "tests", "vitest.config.ts", "eslint.config.js"],
+  "include": ["src", "tests", "prisma", "prisma.config.ts", "vitest.config.ts", "eslint.config.js"],
   "exclude": ["node_modules", "dist"]
 }
