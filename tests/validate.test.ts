@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import request from 'supertest';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 
 import { datosValidados, validate } from '../src/shared/middlewares/validate.js';
@@ -80,5 +80,22 @@ describe('middleware validate', () => {
     const cuerpo = res.body as { error: { codigo: string; detalles: { campo: string }[] } };
     expect(cuerpo.error.codigo).toBe('VALIDACION');
     expect(cuerpo.error.detalles[0]?.campo).toBe('body');
+  });
+});
+
+describe('datosValidados sin validate()', () => {
+  it('lanza un error de programación (500 ERROR_INTERNO) si la ruta no pasó por validate', async () => {
+    const consola = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const rutas = Router();
+    rutas.get('/sin-validate', (_req, res) => {
+      res.json(datosValidados(res, esquemas));
+    });
+
+    const res = await request(crearAppDePrueba(rutas)).get('/sin-validate');
+
+    expect(res.status).toBe(500);
+    expect((res.body as { error: { codigo: string } }).error.codigo).toBe('ERROR_INTERNO');
+    expect(consola).toHaveBeenCalledOnce();
+    consola.mockRestore();
   });
 });
