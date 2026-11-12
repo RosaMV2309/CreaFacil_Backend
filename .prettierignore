@@ -1,5 +1,6 @@
 node_modules/
 dist/
 coverage/
+newman/
 package-lock.json
 src/generated/

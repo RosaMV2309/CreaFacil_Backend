@@ -1,5 +1,7 @@
 # CreaFacil_Backend
 
+[![CI](https://github.com/RosaMV2309/CreaFacil_Backend/actions/workflows/ci.yml/badge.svg?branch=develop)](https://github.com/RosaMV2309/CreaFacil_Backend/actions/workflows/ci.yml)
+
 Servidor y API REST de **CreaFácil**: aplicación multiplataforma para la gestión de pedidos,
 cotizaciones y planificación de trabajos personalizados (manualidades, decoraciones y murales).
 
@@ -155,6 +157,8 @@ Las pruebas de integración leen `DATABASE_URL_TEST` de `.env.test` (ignorado po
 | `npm test`                 | Ejecuta todas las pruebas (Vitest + Supertest)     |
 | `npm run test:unit`        | Solo las pruebas unitarias (sin base de datos)     |
 | `npm run test:integracion` | Solo las de integración (contra `creafacil_test`)  |
+| `npm run test:coverage`    | Todas las pruebas con informe de cobertura         |
+| `npm run test:postman`     | Colección de Postman con newman (servidor en 3000) |
 | `npm run prisma:generate`  | Genera el cliente de Prisma                        |
 | `npm run db:migrate`       | Crea/aplica migraciones en desarrollo              |
 | `npm run db:deploy`        | Aplica las migraciones pendientes (CI/producción)  |
@@ -277,6 +281,44 @@ lógica de negocio, el servicio no conoce Express y solo el repositorio usa Pris
 recibe el cliente inyectado, de modo que las pruebas eligen la base de datos. Al recibir SIGINT o SIGTERM,
 `server.ts` deja de aceptar peticiones y cierra las conexiones con PostgreSQL antes de salir.
 Cada módulo nuevo se registra en `src/routes.ts`.
+
+## Pruebas (RNF-07; DERCAS §6)
+
+| Tipo        | Dónde                                                   | Cómo se ejecuta            |
+| ----------- | ------------------------------------------------------- | -------------------------- |
+| Unitarias   | `tests/*.test.ts` (sin base de datos)                   | `npm run test:unit`        |
+| Integración | `tests/integracion/*.test.ts` (contra `creafacil_test`) | `npm run test:integracion` |
+| Todas       | Vitest + Supertest                                      | `npm test`                 |
+| Cobertura   | Informe en `coverage/`                                  | `npm run test:coverage`    |
+| Postman     | `postman/` (colección + entornos)                       | `npm run test:postman`     |
+
+- **Unitarias**: capas, contrato de errores (404, 400 `JSON_INVALIDO`, 413, 415, 500, 503 degradado),
+  401/403 de `auth` y `requireRole`, validación con Zod, variables de entorno y hash de contraseñas.
+- **Integración**: necesitan `.env.test` con `DATABASE_URL_TEST` (copia `.env.test.example`). Por seguridad,
+  el nombre de la base de datos **debe terminar en `_test`**; el `globalSetup` aplica las migraciones antes.
+- **Cobertura** (`@vitest/coverage-v8`): mide solo `src/`, sin `src/generated/` (cliente de Prisma) ni
+  `src/server.ts` (arranque; se comprueba con newman en la CI). Umbrales mínimos: **80 %** de líneas,
+  sentencias y funciones y **75 %** de ramas; si no se alcanzan, el comando (y la CI) falla.
+  El informe HTML queda en `coverage/index.html`.
+- **Postman**: con el servidor en marcha (`npm run dev`), `npm run test:postman` ejecuta la colección con
+  newman (descargado con `npx` en la versión fijada 6.2.3; no es dependencia del proyecto). Cómo importarla
+  en la app de Postman: [`postman/README.md`](postman/README.md).
+
+## Integración continua (GitHub Actions)
+
+El flujo [`.github/workflows/ci.yml`](.github/workflows/ci.yml) se ejecuta en cada push a `develop` y `main`
+y en cada pull request, en `ubuntu-latest` con **Node.js 24 LTS** y un servicio **PostgreSQL 17**:
+
+1. `npm ci` (con caché de npm). Los scripts de instalación permitidos están en `allowScripts`
+   (`esbuild`, `prisma`, `@prisma/engines`); el `postinstall` genera el cliente de Prisma y un paso lo comprueba.
+2. Crea `creafacil_test` y aplica las migraciones en las dos bases de datos (`prisma migrate deploy`).
+3. `lint`, `typecheck`, `format:check` y `build`.
+4. `test:coverage` (sube el informe `cobertura` como artefacto).
+5. Arranca el servidor compilado (`npm start`), espera a `/health`, ejecuta `db:seed` y la colección de
+   Postman con newman (informe JUnit como artefacto `newman`). Si algo falla, sube `servidor.log`.
+
+Las variables de la CI son **de prueba** (no hay secretos reales). Los resultados se ven en la pestaña
+**Actions** del repositorio y en el badge del inicio de este README.
 
 ## Ramas
 

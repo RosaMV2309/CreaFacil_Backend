@@ -1,0 +1,156 @@
+# Integración continua del backend de CreaFácil (RNF-07; DERCAS §6: pruebas con Postman).
+# Se ejecuta en cada push a develop y main y en cada pull request.
+# Todas las variables son de prueba: aquí no hay secretos reales.
+name: CI
+
+on:
+  push:
+    branches: [develop, main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Lint, pruebas, cobertura y Postman
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: creafacil
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    # NODE_ENV no se fija aquí: con NODE_ENV=production, npm ci omitiría las devDependencies.
+    env:
+      PORT: 3000
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/creafacil?schema=public
+      DATABASE_URL_TEST: postgresql://postgres:postgres@localhost:5432/creafacil_test?schema=public
+      JWT_SECRET: clave-solo-para-la-ci-no-es-un-secreto-real-0123456789
+      JWT_EXPIRES_IN: 8h
+      CORS_ORIGIN: http://localhost:5000,http://localhost:5001
+      ADMIN_EMAIL: admin@ci.creafacil.local
+      ADMIN_PASSWORD: ClaveDePruebaCI-2026
+      ADMIN_NOMBRE: Administradora CI
+
+    steps:
+      - name: Descargar el código
+        uses: actions/checkout@v7
+
+      - name: Instalar Node.js 24 LTS (con caché de npm)
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Versiones de Node y npm
+        run: node --version && npm --version
+
+      # Los scripts de instalación permitidos están en "allowScripts" de package.json
+      # (esbuild, prisma y @prisma/engines). El postinstall ejecuta `prisma generate`.
+      - name: Instalar dependencias (npm ci)
+        run: npm ci
+
+      - name: Comprobar que el postinstall generó el cliente de Prisma
+        run: |
+          if [ ! -f src/generated/prisma/client.ts ]; then
+            echo "::error::npm ci no ejecutó 'prisma generate' (¿scripts de instalación bloqueados?)."
+            exit 1
+          fi
+          echo "Cliente de Prisma generado en src/generated/prisma."
+
+      - name: Crear la base de datos de pruebas (creafacil_test)
+        env:
+          PGPASSWORD: postgres
+        run: psql -h localhost -U postgres -c "CREATE DATABASE creafacil_test;"
+
+      - name: Aplicar migraciones (BD principal)
+        run: npm run db:deploy
+
+      - name: Aplicar migraciones (BD de pruebas)
+        run: npx prisma migrate deploy
+        env:
+          DATABASE_URL: ${{ env.DATABASE_URL_TEST }}
+
+      - name: Lint (ESLint)
+        run: npm run lint
+
+      - name: Tipos (tsc --noEmit)
+        run: npm run typecheck
+
+      - name: Formato (Prettier)
+        run: npm run format:check
+
+      - name: Compilar (tsc)
+        run: npm run build
+
+      - name: Pruebas unitarias y de integración con cobertura
+        run: npm run test:coverage
+
+      - name: Subir el informe de cobertura
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: cobertura
+          path: coverage/
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Arrancar el servidor compilado (npm start) en segundo plano
+        env:
+          NODE_ENV: production
+        run: |
+          nohup npm start > servidor.log 2>&1 &
+          echo "Servidor arrancado (PID $!)."
+
+      - name: Esperar a que /health responda 200
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:3000/api/v1/health; then
+              echo ""
+              echo "La API está lista."
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::La API no respondió en /health en 30 s."
+          exit 1
+
+      - name: Cargar los datos base (db:seed)
+        run: npm run db:seed
+
+      - name: Pruebas de la colección de Postman (newman)
+        run: npm run test:postman:ci
+
+      - name: Subir el informe de newman
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: newman
+          path: newman/
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Subir el log del servidor si algo falló
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: log-servidor
+          path: servidor.log
+          if-no-files-found: ignore
+          retention-days: 14
