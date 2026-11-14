@@ -1,5 +1,6 @@
 import type { RequestHandler } from 'express';
 
+import { exigirUsuario } from '../../shared/middlewares/auth.js';
 import { datosValidados } from '../../shared/middlewares/validate.js';
 import { esquemasLogin, esquemasRegistro } from './auth.schemas.js';
 import type { AuthService } from './auth.service.js';
@@ -11,6 +12,7 @@ import type { AuthService } from './auth.service.js';
 export interface AuthController {
   registrar: RequestHandler;
   iniciarSesion: RequestHandler;
+  obtenerPerfil: RequestHandler;
 }
 
 export function crearAuthController(servicio: AuthService): AuthController {
@@ -23,6 +25,11 @@ export function crearAuthController(servicio: AuthService): AuthController {
     iniciarSesion: async (_req, res) => {
       const { body } = datosValidados(res, esquemasLogin);
       res.status(200).json(await servicio.iniciarSesion(body));
+    },
+
+    obtenerPerfil: async (_req, res) => {
+      const { id } = exigirUsuario(res);
+      res.status(200).json({ usuario: await servicio.obtenerPerfil(id) });
     },
   };
 }

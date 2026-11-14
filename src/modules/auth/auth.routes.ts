@@ -1,6 +1,7 @@
 import { type RequestHandler, Router } from 'express';
 
 import type { PrismaClient } from '../../shared/database/prisma.js';
+import { crearAuth } from '../../shared/middlewares/auth.js';
 import { validate } from '../../shared/middlewares/validate.js';
 import type { ServicioTokens } from '../../shared/security/tokens.js';
 import { crearAuthController } from './auth.controller.js';
@@ -32,5 +33,6 @@ export function crearAuthRouter({
   router.post('/registro', validate(esquemasRegistro), controlador.registrar);
   // El limitador va antes de validar: cualquier intento fallido (también un 400) cuenta.
   router.post('/login', limitadorLogin, validate(esquemasLogin), controlador.iniciarSesion);
+  router.get('/perfil', crearAuth(tokens), controlador.obtenerPerfil);
   return router;
 }

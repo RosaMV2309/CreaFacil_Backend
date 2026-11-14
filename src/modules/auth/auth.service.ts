@@ -32,6 +32,11 @@ export interface DependenciasAuthService {
 export interface AuthService {
   registrar(datos: DatosRegistro): Promise<Sesion>;
   iniciarSesion(datos: DatosLogin): Promise<Sesion>;
+  obtenerPerfil(usuarioId: string): Promise<UsuarioPublico>;
+}
+
+export function sesionNoValida(): AppError {
+  return AppError.noAutorizado('Tu sesión ya no es válida. Inicia sesión de nuevo.');
 }
 
 /**
@@ -128,6 +133,19 @@ export function crearAuthService({
         throw cuentaDesactivada();
       }
       return abrirSesion(usuario);
+    },
+
+    /**
+     * Perfil de la persona autenticada (RF-01: «accede a las funciones de su perfil»).
+     * Se lee de la base de datos con el id del TOKEN (RN-05), nunca con uno enviado por el cliente.
+     * Si la cuenta ya no existe o se desactivó después de emitir el token → 401.
+     */
+    obtenerPerfil: async (usuarioId) => {
+      const usuario = await repositorio.buscarPorId(usuarioId);
+      if (!usuario?.activo) {
+        throw sesionNoValida();
+      }
+      return aUsuarioPublico(usuario);
     },
   };
 }
