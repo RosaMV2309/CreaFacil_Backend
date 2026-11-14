@@ -5,6 +5,7 @@ import { NOMBRE_API, VERSION_API } from './config/app-info.js';
 import type { Env } from './config/env.js';
 import { crearAuthRouter } from './modules/auth/auth.routes.js';
 import { crearHealthRouter } from './modules/health/health.routes.js';
+import { crearLimitadorLogin } from './shared/middlewares/limite-intentos.js';
 import { crearServicioTokens } from './shared/security/tokens.js';
 
 /**
@@ -25,7 +26,19 @@ export function crearRouterApi(env: Env, dependencias: DependenciasApp): Router 
     res.json({ nombre: NOMBRE_API, version: VERSION_API });
   });
   router.use('/health', crearHealthRouter(env, dependencias.prisma));
-  router.use('/auth', crearAuthRouter({ prisma: dependencias.prisma, tokens }));
+  router.use(
+    '/auth',
+    crearAuthRouter({
+      prisma: dependencias.prisma,
+      tokens,
+      limitadorLogin:
+        dependencias.limitadorLogin ??
+        crearLimitadorLogin({
+          maxIntentos: env.LOGIN_MAX_INTENTOS,
+          ventanaMinutos: env.LOGIN_VENTANA_MINUTOS,
+        }),
+    }),
+  );
 
   return router;
 }

@@ -67,3 +67,19 @@ export const esquemasRegistro = {
 };
 
 export type DatosRegistro = z.output<typeof esquemasRegistro.body>;
+
+/**
+ * Inicio de sesión: solo se comprueba la forma. Si el correo no existe o la contraseña no
+ * coincide, el servicio responde siempre lo mismo (401 genérico), sin revelar qué falló.
+ */
+export const esquemasLogin = {
+  body: z.object({
+    email,
+    password: z
+      .string({ error: 'La contraseña es obligatoria' })
+      .min(1, 'La contraseña es obligatoria')
+      .max(200, 'La contraseña no puede superar 200 caracteres'),
+  }),
+};
+
+export type DatosLogin = z.output<typeof esquemasLogin.body>;

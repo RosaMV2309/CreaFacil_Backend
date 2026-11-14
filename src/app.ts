@@ -1,5 +1,5 @@
 import cors from 'cors';
-import express, { type Express } from 'express';
+import express, { type Express, type RequestHandler } from 'express';
 import helmet from 'helmet';
 
 import type { Env } from './config/env.js';
@@ -17,6 +17,11 @@ export interface DependenciasApp {
   prisma: PrismaClient;
   /** Reloj para firmar y verificar los tokens JWT (las pruebas lo adelantan para simular la expiración). */
   reloj?: Reloj;
+  /**
+   * Límite de intentos de inicio de sesión. Si no se inyecta, se construye con
+   * `LOGIN_MAX_INTENTOS` y `LOGIN_VENTANA_MINUTOS`. Las pruebas pasan uno con un límite bajo.
+   */
+  limitadorLogin?: RequestHandler;
 }
 
 export function crearApp(env: Env, dependencias: DependenciasApp): Express {
@@ -24,7 +29,13 @@ export function crearApp(env: Env, dependencias: DependenciasApp): Express {
 
   app.disable('x-powered-by');
   app.use(helmet());
-  app.use(cors({ origin: env.CORS_ORIGIN }));
+  // Las apps web necesitan leer el tiempo de espera del 429 del límite de intentos.
+  app.use(
+    cors({
+      origin: env.CORS_ORIGIN,
+      exposedHeaders: ['Retry-After', 'RateLimit', 'RateLimit-Policy'],
+    }),
+  );
   if (env.NODE_ENV !== 'test') {
     app.use(registroPeticiones);
   }

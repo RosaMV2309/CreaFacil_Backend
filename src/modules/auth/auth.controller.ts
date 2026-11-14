@@ -1,7 +1,7 @@
 import type { RequestHandler } from 'express';
 
 import { datosValidados } from '../../shared/middlewares/validate.js';
-import { esquemasRegistro } from './auth.schemas.js';
+import { esquemasLogin, esquemasRegistro } from './auth.schemas.js';
 import type { AuthService } from './auth.service.js';
 
 /**
@@ -10,6 +10,7 @@ import type { AuthService } from './auth.service.js';
  */
 export interface AuthController {
   registrar: RequestHandler;
+  iniciarSesion: RequestHandler;
 }
 
 export function crearAuthController(servicio: AuthService): AuthController {
@@ -17,6 +18,11 @@ export function crearAuthController(servicio: AuthService): AuthController {
     registrar: async (_req, res) => {
       const { body } = datosValidados(res, esquemasRegistro);
       res.status(201).json(await servicio.registrar(body));
+    },
+
+    iniciarSesion: async (_req, res) => {
+      const { body } = datosValidados(res, esquemasLogin);
+      res.status(200).json(await servicio.iniciarSesion(body));
     },
   };
 }
