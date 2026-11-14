@@ -163,7 +163,7 @@ describe('401 y 403 de auth y requireRole (esqueletos hasta RF-01/RF-02)', () =>
   rutas.get(
     '/solo-admin-como-cliente',
     (_req, res, next) => {
-      guardarUsuario(res, { id: 7, rol: 'CLIENTE' });
+      guardarUsuario(res, { id: '3f2a6c1e-8b4d-4e5f-9a7b-1c2d3e4f5a6b', rol: 'CLIENTE' });
       next();
     },
     requireRole('ADMIN'),
@@ -174,7 +174,7 @@ describe('401 y 403 de auth y requireRole (esqueletos hasta RF-01/RF-02)', () =>
   rutas.get(
     '/admin-o-cliente',
     (_req, res, next) => {
-      guardarUsuario(res, { id: 7, rol: 'CLIENTE' });
+      guardarUsuario(res, { id: '3f2a6c1e-8b4d-4e5f-9a7b-1c2d3e4f5a6b', rol: 'CLIENTE' });
       next();
     },
     requireRole('ADMIN', 'CLIENTE'),

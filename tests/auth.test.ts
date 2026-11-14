@@ -47,7 +47,7 @@ describe('requireRole', () => {
       '/admin',
       (_req, res, next) => {
         if (rol) {
-          guardarUsuario(res, { id: 1, rol });
+          guardarUsuario(res, { id: '3f2a6c1e-8b4d-4e5f-9a7b-1c2d3e4f5a6b', rol });
         }
         next();
       },

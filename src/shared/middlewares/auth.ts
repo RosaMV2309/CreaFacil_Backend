@@ -17,9 +17,12 @@ import { AppError } from '../errors/index.js';
 
 export type Rol = 'ADMIN' | 'CLIENTE';
 
-/** Persona autenticada extraída del token. RN-05: los filtros por cliente usan este `id`. */
+/**
+ * Persona autenticada extraída del token. RN-05: los filtros por cliente usan este `id`.
+ * `id` es el UUID de `Usuario.id` (texto), igual que en la base de datos.
+ */
 export interface UsuarioAutenticado {
-  readonly id: number;
+  readonly id: string;
   readonly rol: Rol;
 }
 
