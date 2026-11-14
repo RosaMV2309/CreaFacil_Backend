@@ -6,7 +6,9 @@ import {
   verificarPassword,
 } from '../src/shared/security/password.js';
 
-describe('contraseñas con bcrypt (RNF-01)', () => {
+// bcryptjs (JavaScript puro) con coste 12 tarda ~1 s por hash; con todas las pruebas en
+// paralelo puede superar los 5 s por defecto de Vitest, así que se amplía el margen.
+describe('contraseñas con bcrypt (RNF-01)', { timeout: 20_000 }, () => {
   it('usa un coste de 12 o más', () => {
     expect(COSTE_BCRYPT).toBeGreaterThanOrEqual(12);
   });

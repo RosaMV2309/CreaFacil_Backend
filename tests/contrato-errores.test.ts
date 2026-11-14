@@ -10,8 +10,9 @@ import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 
 import { crearApp } from '../src/app.js';
 import { manejadorErrores } from '../src/shared/errors/index.js';
-import { auth, guardarUsuario } from '../src/shared/middlewares/auth.js';
+import { crearAuth, guardarUsuario } from '../src/shared/middlewares/auth.js';
 import { requireRole } from '../src/shared/middlewares/require-role.js';
+import { crearServicioTokens } from '../src/shared/security/tokens.js';
 import { crearAppDePrueba, crearPrismaSinBaseDatos, envDePrueba } from './helpers.js';
 
 interface CuerpoError {
@@ -152,7 +153,8 @@ describe('503 degradado en /health', () => {
   });
 });
 
-describe('401 y 403 de auth y requireRole (esqueletos hasta RF-01/RF-02)', () => {
+describe('401 y 403 de auth y requireRole (RF-01, RF-02)', () => {
+  const auth = crearAuth(crearServicioTokens({ secreto: 'c'.repeat(32), duracion: '1h' }));
   const rutas = Router();
   rutas.get('/privada', auth, (_req, res) => {
     res.json({ ok: true });
@@ -163,7 +165,7 @@ describe('401 y 403 de auth y requireRole (esqueletos hasta RF-01/RF-02)', () =>
   rutas.get(
     '/solo-admin-como-cliente',
     (_req, res, next) => {
-      guardarUsuario(res, { id: 7, rol: 'CLIENTE' });
+      guardarUsuario(res, { id: '3f2a6c1e-8b4d-4e5f-9a7b-1c2d3e4f5a6b', rol: 'CLIENTE' });
       next();
     },
     requireRole('ADMIN'),
@@ -174,7 +176,7 @@ describe('401 y 403 de auth y requireRole (esqueletos hasta RF-01/RF-02)', () =>
   rutas.get(
     '/admin-o-cliente',
     (_req, res, next) => {
-      guardarUsuario(res, { id: 7, rol: 'CLIENTE' });
+      guardarUsuario(res, { id: '3f2a6c1e-8b4d-4e5f-9a7b-1c2d3e4f5a6b', rol: 'CLIENTE' });
       next();
     },
     requireRole('ADMIN', 'CLIENTE'),
@@ -195,9 +197,10 @@ describe('401 y 403 de auth y requireRole (esqueletos hasta RF-01/RF-02)', () =>
     expect(cuerpo.error.mensaje).toBe('Debes iniciar sesión para continuar.');
   });
 
-  it('auth nunca concede acceso todavía: con token responde 501 NO_IMPLEMENTADO', async () => {
+  it('auth responde 401 TOKEN_INVALIDO con un token mal formado', async () => {
     const res = await request(appAuth).get('/privada').set('Authorization', 'Bearer x.y.z');
-    esperarError(res, 501, 'NO_IMPLEMENTADO');
+    const cuerpo = esperarError(res, 401, 'TOKEN_INVALIDO');
+    expect(cuerpo.error.mensaje).toBe('El token de sesión no es válido. Inicia sesión de nuevo.');
   });
 
   it('requireRole sin persona autenticada responde 401 NO_AUTENTICADO', async () => {

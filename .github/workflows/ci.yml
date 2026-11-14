@@ -44,9 +44,14 @@ jobs:
       JWT_SECRET: clave-solo-para-la-ci-no-es-un-secreto-real-0123456789
       JWT_EXPIRES_IN: 8h
       CORS_ORIGIN: http://localhost:5000,http://localhost:5001
+      # Credenciales DE PRUEBA de la administradora: las usa el seed y la colección de Postman.
       ADMIN_EMAIL: admin@ci.creafacil.local
       ADMIN_PASSWORD: ClaveDePruebaCI-2026
       ADMIN_NOMBRE: Administradora CI
+      # Límite de intentos de inicio de sesión alto en la CI: newman hace intentos fallidos a
+      # propósito y no debe quedar bloqueado (el 429 se prueba con Vitest con un límite bajo).
+      LOGIN_MAX_INTENTOS: 1000
+      LOGIN_VENTANA_MINUTOS: 15
 
     steps:
       - name: Descargar el código
@@ -134,8 +139,12 @@ jobs:
       - name: Cargar los datos base (db:seed)
         run: npm run db:seed
 
+      # Los entornos versionados no llevan la contraseña: se pasa aquí con --env-var.
       - name: Pruebas de la colección de Postman (newman)
-        run: npm run test:postman:ci
+        run: >-
+          npm run test:postman:ci --
+          --env-var "adminEmail=${ADMIN_EMAIL}"
+          --env-var "adminPassword=${ADMIN_PASSWORD}"
 
       - name: Subir el informe de newman
         if: always()

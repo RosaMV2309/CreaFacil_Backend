@@ -1,25 +1,29 @@
 import type { RequestHandler, Response } from 'express';
 
 import { AppError } from '../errors/index.js';
+import type { ServicioTokens } from '../security/tokens.js';
 
 /**
- * ESQUELETO — se completa en la Fase 1 (RF-01 inicio de sesión y RF-02 perfiles, RNF-01, RNF-03).
- * Todavía NO se aplica a ninguna ruta.
+ * Autenticación con JWT (RF-01, RF-02, RNF-01, RNF-03).
  *
- * Pendiente en RF-01/RF-02:
- * - Instalar `jsonwebtoken`, verificar la firma con `env.JWT_SECRET` y la expiración (`JWT_EXPIRES_IN`).
- * - Construir `UsuarioAutenticado` a partir del payload del token y guardarlo con `guardarUsuario`.
- * - Nunca registrar el token en los logs (RNF-01).
+ * `crearAuth(tokens)` devuelve el middleware que exige `Authorization: Bearer <token>`:
+ * - Sin cabecera, o con un esquema distinto de Bearer → 401 `NO_AUTENTICADO`.
+ * - Token con firma incorrecta, alterado, de otro emisor/audiencia o mal formado → 401 `TOKEN_INVALIDO`.
+ * - Token caducado → 401 `TOKEN_EXPIRADO`.
+ * - Token válido → guarda `UsuarioAutenticado` (id UUID y rol) en `res.locals` y continúa.
  *
- * Mientras tanto es seguro por defecto: sin token responde 401 y con token responde 501,
- * así que nunca concede acceso.
+ * El token nunca se registra en los logs (RNF-01). Los permisos por rol se comprueban después
+ * con `requireRole` (RN-05): `router.get('/admin/...', auth, requireRole('ADMIN'), ...)`.
  */
 
 export type Rol = 'ADMIN' | 'CLIENTE';
 
-/** Persona autenticada extraída del token. RN-05: los filtros por cliente usan este `id`. */
+/**
+ * Persona autenticada extraída del token. RN-05: los filtros por cliente usan este `id`.
+ * `id` es el UUID de `Usuario.id` (texto), igual que en la base de datos.
+ */
 export interface UsuarioAutenticado {
-  readonly id: number;
+  readonly id: string;
   readonly rol: Rol;
 }
 
@@ -47,13 +51,29 @@ export function usuarioAutenticado(res: Response): UsuarioAutenticado | null {
   return typeof usuario === 'object' && usuario !== null ? (usuario as UsuarioAutenticado) : null;
 }
 
-/** Exige un token JWT válido. Esqueleto: ver el comentario del módulo. */
-export const auth: RequestHandler = (req, _res, next) => {
-  const token = extraerToken(req.headers.authorization);
-  if (!token) {
-    next(AppError.noAutorizado());
-    return;
+/** Como {@link usuarioAutenticado}, pero lanza 401 si la ruta no pasó por `auth`. */
+export function exigirUsuario(res: Response): UsuarioAutenticado {
+  const usuario = usuarioAutenticado(res);
+  if (!usuario) {
+    throw AppError.noAutorizado();
   }
-  // TODO(RF-01): verificar el token con jsonwebtoken y llamar a guardarUsuario(res, usuario).
-  next(AppError.noImplementado('La autenticación se habilitará en la Fase 1 (RF-01).'));
-};
+  return usuario;
+}
+
+/** Crea el middleware que exige un token JWT válido. */
+export function crearAuth(tokens: ServicioTokens): RequestHandler {
+  return (req, res, next) => {
+    const token = extraerToken(req.headers.authorization);
+    if (!token) {
+      next(AppError.noAutorizado());
+      return;
+    }
+    try {
+      guardarUsuario(res, tokens.verificar(token));
+    } catch (error) {
+      next(error);
+      return;
+    }
+    next();
+  };
+}

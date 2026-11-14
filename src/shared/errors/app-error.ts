@@ -43,9 +43,15 @@ export class AppError extends Error {
     return new AppError({ estado: 400, codigo: 'VALIDACION', mensaje, detalles });
   }
 
-  /** 401: falta el token o no es válido. */
-  static noAutorizado(mensaje = 'Debes iniciar sesión para continuar.'): AppError {
-    return new AppError({ estado: 401, codigo: 'NO_AUTENTICADO', mensaje });
+  /**
+   * 401: falta el token o no es válido. `codigo` permite precisar el motivo
+   * (`TOKEN_INVALIDO`, `TOKEN_EXPIRADO`, `CREDENCIALES_INVALIDAS`…); por defecto `NO_AUTENTICADO`.
+   */
+  static noAutorizado(
+    mensaje = 'Debes iniciar sesión para continuar.',
+    codigo = 'NO_AUTENTICADO',
+  ): AppError {
+    return new AppError({ estado: 401, codigo, mensaje });
   }
 
   /** 403: la persona está autenticada pero no tiene permiso (RN-05). */
@@ -66,6 +72,11 @@ export class AppError extends Error {
       mensaje,
       ...(detalles ? { detalles } : {}),
     });
+  }
+
+  /** 429: se superó el límite de peticiones (p. ej. intentos de inicio de sesión). */
+  static demasiadosIntentos(mensaje: string): AppError {
+    return new AppError({ estado: 429, codigo: 'DEMASIADOS_INTENTOS', mensaje });
   }
 
   /** 501: funcionalidad prevista que todavía no está implementada. */

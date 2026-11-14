@@ -5,19 +5,56 @@ const urlBaseDatos = z
   .string({ error: 'DATABASE_URL es obligatoria' })
   .startsWith('postgresql://', 'DATABASE_URL debe ser una cadena de conexión de PostgreSQL');
 
-const esquemaEnv = z.object({
-  NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
-  PORT: z.coerce.number().int().min(1).max(65535).default(3000),
-  DATABASE_URL: urlBaseDatos,
-  JWT_SECRET: z
-    .string({ error: 'JWT_SECRET es obligatoria' })
-    .min(32, 'JWT_SECRET debe tener al menos 32 caracteres'),
-  JWT_EXPIRES_IN: z.string().default('8h'),
-  CORS_ORIGIN: z
-    .string()
-    .default('http://localhost:5000')
-    .transform((valor) => valor.split(',').map((origen) => origen.trim())),
-});
+/** Límite de intentos fallidos de inicio de sesión por defecto (decisión de la Fase 1). */
+export const LOGIN_MAX_INTENTOS_POR_DEFECTO = 5;
+/**
+ * Con `NODE_ENV=test` y sin `LOGIN_MAX_INTENTOS` explícito, el límite sube para que las
+ * pruebas automáticas (Vitest, newman) puedan repetirse sin quedar bloqueadas.
+ */
+export const LOGIN_MAX_INTENTOS_EN_PRUEBAS = 1000;
+
+const esquemaEnv = z
+  .object({
+    NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
+    PORT: z.coerce.number().int().min(1).max(65535).default(3000),
+    DATABASE_URL: urlBaseDatos,
+    JWT_SECRET: z
+      .string({ error: 'JWT_SECRET es obligatoria' })
+      .min(32, 'JWT_SECRET debe tener al menos 32 caracteres'),
+    /** Duración del token: número + unidad (s, m, h, d), p. ej. `8h`. Sin unidad = segundos. */
+    JWT_EXPIRES_IN: z
+      .string()
+      .trim()
+      .regex(
+        /^[1-9]\d*[smhd]?$/,
+        'JWT_EXPIRES_IN debe ser un número con unidad s, m, h o d (p. ej. 8h)',
+      )
+      .default('8h'),
+    CORS_ORIGIN: z
+      .string()
+      .default('http://localhost:5000')
+      .transform((valor) => valor.split(',').map((origen) => origen.trim())),
+    /** Intentos FALLIDOS de inicio de sesión permitidos por IP en cada ventana (RNF-01). */
+    LOGIN_MAX_INTENTOS: z.coerce
+      .number({ error: 'LOGIN_MAX_INTENTOS debe ser un número entero' })
+      .int('LOGIN_MAX_INTENTOS debe ser un número entero')
+      .min(1, 'LOGIN_MAX_INTENTOS debe ser al menos 1')
+      .max(100_000, 'LOGIN_MAX_INTENTOS no puede superar 100000')
+      .optional(),
+    /** Duración de la ventana del límite de intentos, en minutos. */
+    LOGIN_VENTANA_MINUTOS: z.coerce
+      .number({ error: 'LOGIN_VENTANA_MINUTOS debe ser un número entero' })
+      .int('LOGIN_VENTANA_MINUTOS debe ser un número entero')
+      .min(1, 'LOGIN_VENTANA_MINUTOS debe ser al menos 1')
+      .max(1440, 'LOGIN_VENTANA_MINUTOS no puede superar 1440 (un día)')
+      .default(15),
+  })
+  .transform((env) => ({
+    ...env,
+    LOGIN_MAX_INTENTOS:
+      env.LOGIN_MAX_INTENTOS ??
+      (env.NODE_ENV === 'test' ? LOGIN_MAX_INTENTOS_EN_PRUEBAS : LOGIN_MAX_INTENTOS_POR_DEFECTO),
+  }));
 
 /**
  * Variables que solo usa el seed (`npm run db:seed`) para crear la cuenta de la administradora.
