@@ -64,7 +64,12 @@
           ],
           "request": {
             "method": "GET",
-            "header": [{ "key": "Accept", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
             "url": {
               "raw": "{{baseUrl}}",
               "host": ["{{baseUrl}}"]
@@ -113,7 +118,12 @@
           ],
           "request": {
             "method": "GET",
-            "header": [{ "key": "Accept", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
             "url": {
               "raw": "{{baseUrl}}/health",
               "host": ["{{baseUrl}}"],
@@ -126,8 +136,570 @@
       ]
     },
     {
+      "name": "Autenticación",
+      "description": "Registro de clientes, inicio de sesión y perfil con JWT (RF-01, RF-02, RNF-01).\n\n- El registro público solo crea cuentas de CLIENTE; la administradora se crea con el seed.\n- El token (8 h, sin refresh) se guarda en la variable de colección `tokenCliente` y se envía como `Authorization: Bearer`.\n- La administradora inicia sesión con las variables de entorno `adminEmail` y `adminPassword`. Los archivos de entorno versionados NO llevan la contraseña: escríbela en el **valor actual** (Current value) del entorno, o usa `npm run test:postman`, que la lee del `.env`.\n- Límite de intentos: cada ejecución hace 1 inicio de sesión fallido. Con el límite por defecto (5 fallos cada 15 min por IP) puedes ejecutar la carpeta 5 veces seguidas; ver postman/README.md.",
+      "item": [
+        {
+          "name": "Registro de cliente (201)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Correo único en cada ejecución para que el registro no choque con uno anterior.",
+                  "pm.collectionVariables.set('emailCliente', `cliente+${Date.now()}@creafacil.test`);",
+                  "pm.collectionVariables.set('passwordCliente', 'Clave-Postman-2026');"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 201', function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "const cuerpo = pm.response.json();",
+                  "",
+                  "pm.test('devuelve { token, tipo: \"Bearer\", expiraEn, usuario }', function () {",
+                  "    pm.expect(Object.keys(cuerpo).sort()).to.eql(['expiraEn', 'tipo', 'token', 'usuario']);",
+                  "    pm.expect(cuerpo.tipo).to.eql('Bearer');",
+                  "    pm.expect(cuerpo.token.split('.')).to.have.lengthOf(3);",
+                  "});",
+                  "",
+                  "pm.test('el token expira en unas 8 horas (sin refresh token)', function () {",
+                  "    const horas = (new Date(cuerpo.expiraEn).getTime() - Date.now()) / 3600000;",
+                  "    pm.expect(horas).to.be.within(7.9, 8.01);",
+                  "});",
+                  "",
+                  "pm.test('usuario con id UUID (texto) y rol CLIENTE', function () {",
+                  "    pm.expect(Object.keys(cuerpo.usuario).sort()).to.eql(['email', 'id', 'nombre', 'rol', 'telefono']);",
+                  "    pm.expect(cuerpo.usuario.id).to.be.a('string').and.match(/^[0-9a-f-]{36}$/);",
+                  "    pm.expect(cuerpo.usuario.rol).to.eql('CLIENTE');",
+                  "});",
+                  "",
+                  "pm.test('nunca devuelve la contraseña ni su hash (RNF-01)', function () {",
+                  "    pm.expect(pm.response.text()).to.not.match(/passwordHash|password|\\$2[aby]\\$/);",
+                  "});",
+                  "",
+                  "pm.test('normaliza los datos (correo en minúsculas, teléfono sin espacios)', function () {",
+                  "    pm.expect(cuerpo.usuario.email).to.eql(pm.collectionVariables.get('emailCliente'));",
+                  "    pm.expect(cuerpo.usuario.nombre).to.eql('Cliente Postman');",
+                  "    pm.expect(cuerpo.usuario.telefono).to.eql('+593991234567');",
+                  "});",
+                  "",
+                  "pm.collectionVariables.set('tokenCliente', cuerpo.token);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nombre\": \"  Cliente Postman \",\n  \"email\": \"{{emailCliente}}\",\n  \"password\": \"{{passwordCliente}}\",\n  \"telefono\": \"+593 99 123 4567\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/registro",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "registro"]
+            },
+            "description": "POST /api/v1/auth/registro — crea una cuenta de CLIENTE y devuelve 201 con `{ token, tipo, expiraEn, usuario }`. El pre-request script genera un correo único (`cliente+<marca de tiempo>@creafacil.test`)."
+          },
+          "response": []
+        },
+        {
+          "name": "Registro con correo duplicado (409)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 409', function () {",
+                  "    pm.response.to.have.status(409);",
+                  "});",
+                  "",
+                  "pm.test('error.codigo es CONFLICTO con el mensaje en español', function () {",
+                  "    const cuerpo = pm.response.json();",
+                  "    pm.expect(cuerpo.error.codigo).to.eql('CONFLICTO');",
+                  "    pm.expect(cuerpo.error.mensaje).to.eql('Ya existe una cuenta con ese correo.');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nombre\": \"Cliente Repetido\",\n  \"email\": \"{{emailCliente}}\",\n  \"password\": \"{{passwordCliente}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/registro",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "registro"]
+            },
+            "description": "POST /api/v1/auth/registro con el mismo correo — 409 CONFLICTO."
+          },
+          "response": []
+        },
+        {
+          "name": "Registro inválido (400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 400', function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "",
+                  "pm.test('error VALIDACION con el detalle de cada campo (correo, contraseña y rol)', function () {",
+                  "    const cuerpo = pm.response.json();",
+                  "    pm.expect(cuerpo.error.codigo).to.eql('VALIDACION');",
+                  "    const campos = cuerpo.error.detalles.map(function (d) { return d.campo; });",
+                  "    pm.expect(campos).to.include.members(['email', 'password', 'rol']);",
+                  "});",
+                  "",
+                  "pm.test('no se puede elegir el rol ADMIN al registrarse', function () {",
+                  "    const rol = pm.response.json().error.detalles.find(function (d) { return d.campo === 'rol'; });",
+                  "    pm.expect(rol.mensaje).to.match(/siempre son de cliente/);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nombre\": \"Intento Admin\",\n  \"email\": \"no-es-un-correo\",\n  \"password\": \"corta\",\n  \"rol\": \"ADMIN\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/registro",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "registro"]
+            },
+            "description": "POST /api/v1/auth/registro con correo inválido, contraseña de menos de 8 caracteres y `rol: ADMIN` — 400 VALIDACION con `detalles`."
+          },
+          "response": []
+        },
+        {
+          "name": "Inicio de sesión del cliente (200)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const cuerpo = pm.response.json();",
+                  "",
+                  "pm.test('devuelve { token, tipo: \"Bearer\", expiraEn, usuario }', function () {",
+                  "    pm.expect(Object.keys(cuerpo).sort()).to.eql(['expiraEn', 'tipo', 'token', 'usuario']);",
+                  "    pm.expect(cuerpo.tipo).to.eql('Bearer');",
+                  "    pm.expect(cuerpo.token.split('.')).to.have.lengthOf(3);",
+                  "});",
+                  "",
+                  "pm.test('el token expira en unas 8 horas (sin refresh token)', function () {",
+                  "    const horas = (new Date(cuerpo.expiraEn).getTime() - Date.now()) / 3600000;",
+                  "    pm.expect(horas).to.be.within(7.9, 8.01);",
+                  "});",
+                  "",
+                  "pm.test('usuario con id UUID (texto) y rol CLIENTE', function () {",
+                  "    pm.expect(Object.keys(cuerpo.usuario).sort()).to.eql(['email', 'id', 'nombre', 'rol', 'telefono']);",
+                  "    pm.expect(cuerpo.usuario.id).to.be.a('string').and.match(/^[0-9a-f-]{36}$/);",
+                  "    pm.expect(cuerpo.usuario.rol).to.eql('CLIENTE');",
+                  "});",
+                  "",
+                  "pm.test('nunca devuelve la contraseña ni su hash (RNF-01)', function () {",
+                  "    pm.expect(pm.response.text()).to.not.match(/passwordHash|password|\\$2[aby]\\$/);",
+                  "});",
+                  "",
+                  "// Se guarda para las peticiones del perfil (Authorization: Bearer {{tokenCliente}}).",
+                  "pm.collectionVariables.set('tokenCliente', cuerpo.token);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{emailCliente}}\",\n  \"password\": \"{{passwordCliente}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "login"]
+            },
+            "description": "POST /api/v1/auth/login — 200 con la misma forma que el registro. El token se guarda en la variable de colección `tokenCliente`."
+          },
+          "response": []
+        },
+        {
+          "name": "Inicio de sesión con contraseña incorrecta (401)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 401', function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});",
+                  "",
+                  "pm.test('mensaje genérico CREDENCIALES_INVALIDAS (no revela si el correo existe)', function () {",
+                  "    const cuerpo = pm.response.json();",
+                  "    pm.expect(cuerpo.error.codigo).to.eql('CREDENCIALES_INVALIDAS');",
+                  "    pm.expect(cuerpo.error.mensaje).to.eql('Correo o contraseña incorrectos.');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{emailCliente}}\",\n  \"password\": \"no-es-la-clave\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "login"]
+            },
+            "description": "POST /api/v1/auth/login con una contraseña incorrecta — 401 CREDENCIALES_INVALIDAS. Cuenta como 1 intento fallido para el límite por IP."
+          },
+          "response": []
+        },
+        {
+          "name": "Perfil con token (200)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test('devuelve { usuario } de la persona del token, sin contraseña', function () {",
+                  "    const cuerpo = pm.response.json();",
+                  "    pm.expect(Object.keys(cuerpo)).to.eql(['usuario']);",
+                  "    pm.expect(cuerpo.usuario.email).to.eql(pm.collectionVariables.get('emailCliente'));",
+                  "    pm.expect(cuerpo.usuario.rol).to.eql('CLIENTE');",
+                  "    pm.expect(pm.response.text()).to.not.match(/passwordHash|\\$2[aby]\\$/);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenCliente}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/perfil",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "perfil"]
+            },
+            "description": "GET /api/v1/auth/perfil con `Authorization: Bearer {{tokenCliente}}` (pestaña Authorization → Bearer Token) — 200 con `{ usuario }`."
+          },
+          "response": []
+        },
+        {
+          "name": "Perfil sin token (401)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 401', function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});",
+                  "",
+                  "pm.test('error.codigo es NO_AUTENTICADO', function () {",
+                  "    const cuerpo = pm.response.json();",
+                  "    pm.expect(cuerpo.error.codigo).to.eql('NO_AUTENTICADO');",
+                  "    pm.expect(cuerpo.error.mensaje).to.eql('Debes iniciar sesión para continuar.');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/perfil",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "perfil"]
+            },
+            "description": "GET /api/v1/auth/perfil sin cabecera Authorization — 401 NO_AUTENTICADO."
+          },
+          "response": []
+        },
+        {
+          "name": "Perfil con token alterado (401)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Cambia el rol del token a ADMIN sin volver a firmarlo: la firma deja de coincidir.",
+                  "const partes = (pm.collectionVariables.get('tokenCliente') || 'a.b.c').split('.');",
+                  "const datos = JSON.parse(CryptoJS.enc.Base64.parse(partes[1].replace(/-/g, '+').replace(/_/g, '/')).toString(CryptoJS.enc.Utf8));",
+                  "datos.rol = 'ADMIN';",
+                  "const alterado = CryptoJS.enc.Base64.stringify(CryptoJS.enc.Utf8.parse(JSON.stringify(datos)))",
+                  "    .replace(/=+$/, '').replace(/\\+/g, '-').replace(/\\//g, '_');",
+                  "pm.variables.set('tokenAlterado', [partes[0], alterado, partes[2]].join('.'));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 401', function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});",
+                  "",
+                  "pm.test('error.codigo es TOKEN_INVALIDO', function () {",
+                  "    const cuerpo = pm.response.json();",
+                  "    pm.expect(cuerpo.error.codigo).to.eql('TOKEN_INVALIDO');",
+                  "    pm.expect(cuerpo.error.mensaje).to.eql('El token de sesión no es válido. Inicia sesión de nuevo.');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenAlterado}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/perfil",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "perfil"]
+            },
+            "description": "GET /api/v1/auth/perfil con el token del cliente alterado (rol cambiado a ADMIN sin firmar, en el pre-request script) — 401 TOKEN_INVALIDO."
+          },
+          "response": []
+        },
+        {
+          "name": "Inicio de sesión de la administradora (200)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.environment.get('adminPassword')) {",
+                  "    console.warn('Falta adminPassword en el entorno: escribe la contraseña de ADMIN_PASSWORD de tu .env en el valor actual (Current value) del entorno, o usa npm run test:postman.');",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 200 (si falla, revisa adminEmail/adminPassword en el entorno)', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const cuerpo = pm.response.json();",
+                  "",
+                  "pm.test('devuelve { token, tipo: \"Bearer\", expiraEn, usuario }', function () {",
+                  "    pm.expect(Object.keys(cuerpo).sort()).to.eql(['expiraEn', 'tipo', 'token', 'usuario']);",
+                  "    pm.expect(cuerpo.tipo).to.eql('Bearer');",
+                  "    pm.expect(cuerpo.token.split('.')).to.have.lengthOf(3);",
+                  "});",
+                  "",
+                  "pm.test('el token expira en unas 8 horas (sin refresh token)', function () {",
+                  "    const horas = (new Date(cuerpo.expiraEn).getTime() - Date.now()) / 3600000;",
+                  "    pm.expect(horas).to.be.within(7.9, 8.01);",
+                  "});",
+                  "",
+                  "pm.test('usuario con id UUID (texto) y rol ADMIN', function () {",
+                  "    pm.expect(Object.keys(cuerpo.usuario).sort()).to.eql(['email', 'id', 'nombre', 'rol', 'telefono']);",
+                  "    pm.expect(cuerpo.usuario.id).to.be.a('string').and.match(/^[0-9a-f-]{36}$/);",
+                  "    pm.expect(cuerpo.usuario.rol).to.eql('ADMIN');",
+                  "});",
+                  "",
+                  "pm.test('nunca devuelve la contraseña ni su hash (RNF-01)', function () {",
+                  "    pm.expect(pm.response.text()).to.not.match(/passwordHash|password|\\$2[aby]\\$/);",
+                  "});",
+                  "",
+                  "pm.test('es la cuenta de adminEmail', function () {",
+                  "    pm.expect(cuerpo.usuario.email).to.eql(String(pm.environment.get('adminEmail')).trim().toLowerCase());",
+                  "});",
+                  "",
+                  "pm.collectionVariables.set('tokenAdmin', cuerpo.token);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{adminEmail}}\",\n  \"password\": \"{{adminPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "login"]
+            },
+            "description": "POST /api/v1/auth/login con las credenciales del seed (variables de entorno `adminEmail` y `adminPassword`) — 200 con `usuario.rol = \"ADMIN\"`. El token se guarda en `tokenAdmin` (se usará en la subfase 1.2)."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
       "name": "Errores",
-      "description": "Contrato de errores de la API: siempre JSON con `{ error: { codigo, mensaje, detalles? } }` y el código HTTP correcto (RNF-02). Los 401/403 se añadirán con las rutas de la Fase 1 (RF-01, RF-02).",
+      "description": "Contrato de errores de la API: siempre JSON con `{ error: { codigo, mensaje, detalles? } }` y el código HTTP correcto (RNF-02). Los 401 de autenticación están en la carpeta Autenticación; los 403 por rol llegarán en la subfase 1.2 (RF-02).",
       "item": [
         {
           "name": "Ruta inexistente (404)",
@@ -152,7 +724,12 @@
           ],
           "request": {
             "method": "GET",
-            "header": [{ "key": "Accept", "value": "application/json" }],
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
             "url": {
               "raw": "{{baseUrl}}/no-existe",
               "host": ["{{baseUrl}}"],
@@ -186,13 +763,23 @@
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "Accept", "value": "application/json" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
             ],
             "body": {
               "mode": "raw",
               "raw": "{\"nombre\": \"Mural\", \"cantidad\": ",
-              "options": { "raw": { "language": "json" } }
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
             "url": {
               "raw": "{{baseUrl}}/health",
@@ -237,13 +824,23 @@
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "Accept", "value": "application/json" }
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
             ],
             "body": {
               "mode": "raw",
               "raw": "{\"relleno\": \"{{cuerpoGrande}}\"}",
-              "options": { "raw": { "language": "json" } }
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
             },
             "url": {
               "raw": "{{baseUrl}}/health",
@@ -276,8 +873,14 @@
           "request": {
             "method": "POST",
             "header": [
-              { "key": "Content-Type", "value": "application/json; charset=latin1" },
-              { "key": "Accept", "value": "application/json" }
+              {
+                "key": "Content-Type",
+                "value": "application/json; charset=latin1"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
             ],
             "body": {
               "mode": "raw",
@@ -299,6 +902,26 @@
     {
       "key": "baseUrl",
       "value": "http://localhost:3000/api/v1",
+      "type": "string"
+    },
+    {
+      "key": "emailCliente",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "passwordCliente",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "tokenCliente",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "tokenAdmin",
+      "value": "",
       "type": "string"
     }
   ]

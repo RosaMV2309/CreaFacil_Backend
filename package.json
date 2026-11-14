@@ -22,7 +22,7 @@
     "test:integracion": "vitest run --project integracion",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "test:postman": "npx --yes newman@6.2.3 run postman/CreaFacil.postman_collection.json -e postman/CreaFacil.local.postman_environment.json",
+    "test:postman": "node scripts/postman.js",
     "test:postman:ci": "npx --yes newman@6.2.3 run postman/CreaFacil.postman_collection.json -e postman/CreaFacil.ci.postman_environment.json --reporters cli,junit --reporter-junit-export newman/resultados-newman.xml",
     "postinstall": "prisma generate",
     "prisma:generate": "prisma generate",
