@@ -126,17 +126,19 @@ Decisiones clave:
 
 ## Variables de entorno
 
-| Variable         | Obligatoria | Descripción                                                      |
-| ---------------- | ----------- | ---------------------------------------------------------------- |
-| `NODE_ENV`       | No          | `development`, `test` o `production` (por defecto `development`) |
-| `PORT`           | No          | Puerto HTTP (por defecto `3000`)                                 |
-| `DATABASE_URL`   | Sí          | Cadena de conexión de PostgreSQL                                 |
-| `JWT_SECRET`     | Sí          | Secreto para firmar los tokens (32 caracteres o más)             |
-| `JWT_EXPIRES_IN` | No          | Duración del token (por defecto `8h`)                            |
-| `CORS_ORIGIN`    | No          | Orígenes permitidos, separados por comas                         |
-| `ADMIN_EMAIL`    | Seed        | Correo de la administradora inicial                              |
-| `ADMIN_PASSWORD` | Seed        | Contraseña inicial (8 a 72 caracteres; se guarda como hash)      |
-| `ADMIN_NOMBRE`   | No          | Nombre de la administradora (por defecto `Administradora`)       |
+| Variable                | Obligatoria | Descripción                                                                                |
+| ----------------------- | ----------- | ------------------------------------------------------------------------------------------ |
+| `NODE_ENV`              | No          | `development`, `test` o `production` (por defecto `development`)                           |
+| `PORT`                  | No          | Puerto HTTP (por defecto `3000`)                                                           |
+| `DATABASE_URL`          | Sí          | Cadena de conexión de PostgreSQL                                                           |
+| `JWT_SECRET`            | Sí          | Secreto para firmar los tokens (32 caracteres o más)                                       |
+| `JWT_EXPIRES_IN`        | No          | Duración del token: número + `s`/`m`/`h`/`d` (por defecto `8h`)                            |
+| `CORS_ORIGIN`           | No          | Orígenes permitidos, separados por comas                                                   |
+| `LOGIN_MAX_INTENTOS`    | No          | Intentos fallidos de inicio de sesión por IP (por defecto `5`; `1000` con `NODE_ENV=test`) |
+| `LOGIN_VENTANA_MINUTOS` | No          | Ventana del límite de intentos en minutos, de 1 a 1440 (por defecto `15`)                  |
+| `ADMIN_EMAIL`           | Seed        | Correo de la administradora inicial                                                        |
+| `ADMIN_PASSWORD`        | Seed        | Contraseña inicial (8 a 72 caracteres; se guarda como hash)                                |
+| `ADMIN_NOMBRE`          | No          | Nombre de la administradora (por defecto `Administradora`)                                 |
 
 Si falta una variable obligatoria o tiene un formato incorrecto, el servidor no arranca y muestra qué corregir.
 Las variables `ADMIN_*` solo las exige el seed (`cargarEnvSeed`): el servidor no necesita la contraseña inicial.
@@ -167,10 +169,13 @@ Las pruebas de integración leen `DATABASE_URL_TEST` de `.env.test` (ignorado po
 
 ## Endpoints
 
-| Método | Ruta             | Descripción                      |
-| ------ | ---------------- | -------------------------------- |
-| GET    | `/api/v1`        | Nombre y versión de la API       |
-| GET    | `/api/v1/health` | Estado de la API y de PostgreSQL |
+| Método | Ruta                    | Autenticación | Descripción                             |
+| ------ | ----------------------- | ------------- | --------------------------------------- |
+| GET    | `/api/v1`               | No            | Nombre y versión de la API              |
+| GET    | `/api/v1/health`        | No            | Estado de la API y de PostgreSQL        |
+| POST   | `/api/v1/auth/registro` | No            | Registro de clientes (RF-01)            |
+| POST   | `/api/v1/auth/login`    | No            | Inicio de sesión (clientes y ADMIN)     |
+| GET    | `/api/v1/auth/perfil`   | Bearer        | Datos de la persona autenticada (RF-01) |
 
 `GET /api/v1/health` comprueba la base de datos con `SELECT 1` (rutas → controlador → servicio →
 repositorio). Si responde, devuelve **200**:
@@ -190,6 +195,131 @@ repositorio). Si responde, devuelve **200**:
 Si PostgreSQL no responde (o tarda más de 3 s), devuelve **503** con `"estado": "degradado"` y
 `"baseDatos": "error"`. El motivo solo se registra en la consola del servidor; nunca se envía al cliente.
 
+## Autenticación (RF-01, RF-02, RNF-01)
+
+Sesiones con **JWT** firmados con HS256 (`JWT_SECRET`), emisor `creafacil-api` y audiencia
+`creafacil-app`. El token dura **8 horas** (`JWT_EXPIRES_IN`) y **no hay refresh token**: al expirar,
+la persona vuelve a iniciar sesión. El payload solo lleva `sub` (UUID del usuario) y `rol`.
+Las contraseñas se guardan con bcrypt (coste 12) y nunca se devuelven ni se registran en los logs.
+
+- El **registro público solo crea clientes** (`rol: "CLIENTE"`). Si el cuerpo incluye `rol`, se
+  responde 400 (no se ignora en silencio). La **administradora** solo se crea con el seed
+  (`ADMIN_EMAIL` / `ADMIN_PASSWORD` del `.env`) e inicia sesión con esas credenciales.
+- No hay recuperación de contraseña en la v1.
+
+### Cómo usar el token
+
+Envía el token en la cabecera de cada petición protegida:
+
+```
+Authorization: Bearer <token>
+```
+
+### `POST /api/v1/auth/registro`
+
+```json
+{
+  "nombre": "María Pérez",
+  "email": "maria@example.com",
+  "password": "Clave-Segura-2026",
+  "telefono": "+593 99 123 4567"
+}
+```
+
+| Campo      | Reglas                                                                                                                                                                          |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `nombre`   | Obligatorio, de 2 a 120 caracteres (se quitan los espacios de los extremos)                                                                                                     |
+| `email`    | Obligatorio, correo válido; se guarda sin espacios y en minúsculas                                                                                                              |
+| `password` | Obligatoria, de 8 a 72 caracteres (y como máximo 72 bytes: es el límite de bcrypt)                                                                                              |
+| `telefono` | Opcional: `+` opcional y de 7 a 15 dígitos; se admiten espacios, guiones y paréntesis, que se eliminan (`"+593 99 123 4567"` → `"+593991234567"`). `""` o `null` = sin teléfono |
+| `rol`      | **No se admite**: cualquier valor devuelve 400                                                                                                                                  |
+
+Respuesta **201** (la misma forma que el inicio de sesión):
+
+```json
+{
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9…",
+  "tipo": "Bearer",
+  "expiraEn": "2026-11-14T11:28:09.000Z",
+  "usuario": {
+    "id": "8d7fdcbc-0e64-49df-895b-b89c21dca0f5",
+    "nombre": "María Pérez",
+    "email": "maria@example.com",
+    "telefono": "+593991234567",
+    "rol": "CLIENTE"
+  }
+}
+```
+
+`expiraEn` es la fecha y hora ISO 8601 (UTC) en que caduca el token. `usuario.id` es un UUID (texto).
+
+### `POST /api/v1/auth/login`
+
+```json
+{ "email": "maria@example.com", "password": "Clave-Segura-2026" }
+```
+
+Respuesta **200** con `{ token, tipo, expiraEn, usuario }` (igual que el registro; para la
+administradora, `usuario.rol` es `"ADMIN"`).
+
+### `GET /api/v1/auth/perfil`
+
+Requiere `Authorization: Bearer <token>`. Lee los datos de la base de datos con el id del token
+(nunca con un id enviado por el cliente, RN-05). Respuesta **200**:
+
+```json
+{
+  "usuario": {
+    "id": "8d7fdcbc-0e64-49df-895b-b89c21dca0f5",
+    "nombre": "María Pérez",
+    "email": "maria@example.com",
+    "telefono": "+593991234567",
+    "rol": "CLIENTE"
+  }
+}
+```
+
+### Errores de autenticación
+
+| Estado | `codigo`                 | Cuándo                                                                                            |
+| ------ | ------------------------ | ------------------------------------------------------------------------------------------------- |
+| 400    | `VALIDACION`             | Datos inválidos (con `detalles` por campo), incluido enviar `rol` en el registro                  |
+| 401    | `CREDENCIALES_INVALIDAS` | «Correo o contraseña incorrectos.»: el MISMO mensaje si el correo no existe o la contraseña falla |
+| 401    | `NO_AUTENTICADO`         | Falta el token (o la cuenta del token ya no existe o fue desactivada)                             |
+| 401    | `TOKEN_INVALIDO`         | Token con firma incorrecta, alterado, de otro emisor/audiencia o mal formado                      |
+| 401    | `TOKEN_EXPIRADO`         | El token caducó (pasaron las 8 h): hay que iniciar sesión de nuevo                                |
+| 403    | `CUENTA_DESACTIVADA`     | La cuenta está desactivada (solo se indica si la contraseña es correcta)                          |
+| 409    | `CONFLICTO`              | «Ya existe una cuenta con ese correo.» (registro)                                                 |
+| 429    | `DEMASIADOS_INTENTOS`    | Se superó el límite de intentos de inicio de sesión (con cabecera `Retry-After`)                  |
+
+Decisiones de seguridad:
+
+- **No se revela qué cuentas existen** al iniciar sesión: correo inexistente y contraseña incorrecta
+  devuelven el mismo cuerpo, y con un correo inexistente se compara igualmente contra un hash bcrypt
+  ficticio para que la respuesta tarde lo mismo. En el registro sí se indica el correo duplicado
+  (409): es inevitable para que la persona sepa que debe iniciar sesión.
+- Una cuenta desactivada solo recibe 403 si la contraseña es correcta; con una contraseña incorrecta
+  recibe el 401 genérico.
+
+### Límite de intentos de inicio de sesión
+
+`POST /auth/login` admite **5 intentos fallidos cada 15 minutos por IP** (configurable con
+`LOGIN_MAX_INTENTOS` y `LOGIN_VENTANA_MINUTOS`). Solo cuentan los intentos fallidos: un inicio de
+sesión correcto no consume intentos. Al superarlo, la API responde **429** con el código
+`DEMASIADOS_INTENTOS`, el mensaje «Demasiados intentos de inicio de sesión. Inténtalo de nuevo en
+N minutos.» y las cabeceras `Retry-After` (segundos) y `RateLimit`/`RateLimit-Policy`. Mientras dura
+el bloqueo se rechazan todos los intentos de esa IP, también los correctos. El registro no está sujeto
+a este límite.
+
+- Los contadores se guardan **en memoria**: se reinician al reiniciar el servidor.
+- Con `NODE_ENV=test` y sin `LOGIN_MAX_INTENTOS` explícito, el límite por defecto es 1000, para que las
+  pruebas no se bloqueen; la CI fija `LOGIN_MAX_INTENTOS=1000`.
+- **newman en local**: cada ejecución de la colección hace 1 inicio de sesión fallido a propósito. Con
+  el límite por defecto puedes ejecutarla 5 veces seguidas en 15 minutos; para más, reinicia
+  `npm run dev` o pon `LOGIN_MAX_INTENTOS=50` en tu `.env`.
+- Si en producción la API queda detrás de un proxy inverso, habrá que configurar `trust proxy` para
+  que se use la IP real del cliente.
+
 ## Formato de errores
 
 Todas las respuestas de error son JSON con la misma forma (RNF-02). `detalles` solo aparece si hay:
@@ -208,17 +338,23 @@ Todas las respuestas de error son JSON con la misma forma (RNF-02). `detalles` s
 | ------ | ------------------------- | ------------------------------------------------------- |
 | 400    | `VALIDACION`              | Los datos no cumplen el esquema Zod                     |
 | 400    | `JSON_INVALIDO`           | El cuerpo no es un JSON válido                          |
-| 401    | `NO_AUTENTICADO`          | Falta el token o no es válido                           |
+| 401    | `NO_AUTENTICADO`          | Falta el token                                          |
+| 401    | `TOKEN_INVALIDO`          | El token no es válido (firma, formato, emisor…)         |
+| 401    | `TOKEN_EXPIRADO`          | El token caducó                                         |
+| 401    | `CREDENCIALES_INVALIDAS`  | Correo o contraseña incorrectos (inicio de sesión)      |
 | 403    | `PROHIBIDO`               | Sin permiso para la acción (RN-05)                      |
+| 403    | `CUENTA_DESACTIVADA`      | La cuenta está desactivada                              |
 | 404    | `NO_ENCONTRADO`           | El recurso no existe                                    |
 | 404    | `RUTA_NO_ENCONTRADA`      | La ruta no existe                                       |
 | 409    | `CONFLICTO`               | La operación choca con el estado actual                 |
 | 413    | `CUERPO_DEMASIADO_GRANDE` | El cuerpo supera 1 MB                                   |
+| 429    | `DEMASIADOS_INTENTOS`     | Límite de intentos de inicio de sesión superado         |
 | 500    | `ERROR_INTERNO`           | Error inesperado (se registra en el servidor, sin pila) |
 
 En el código, los servicios lanzan `AppError` con sus fábricas:
-`AppError.noEncontrado()`, `AppError.validacion(detalles)`, `AppError.noAutorizado()`,
-`AppError.prohibido()`, `AppError.conflicto(mensaje)` y `AppError.noImplementado()`.
+`AppError.noEncontrado()`, `AppError.validacion(detalles)`, `AppError.noAutorizado(mensaje?, codigo?)`,
+`AppError.prohibido()`, `AppError.conflicto(mensaje)`, `AppError.demasiadosIntentos(mensaje)` y
+`AppError.noImplementado()`.
 El manejador central (`src/shared/errors/error-handler.ts`) los convierte en la respuesta JSON.
 
 ## Validación con Zod (`validate`)
@@ -258,14 +394,23 @@ src/
 ├── shared/
 │   ├── database/prisma.ts      # cliente Prisma único (adapter PrismaPg)
 │   ├── errors/                 # AppError, manejador central de errores y 404
-│   ├── security/password.ts    # hash y verificación de contraseñas con bcrypt (RNF-01)
+│   ├── security/
+│   │   ├── password.ts         # hash y verificación de contraseñas con bcrypt (RNF-01)
+│   │   └── tokens.ts           # firmar/verificar JWT (HS256, iss/aud, reloj inyectable)
 │   └── middlewares/
 │       ├── validate.ts         # validación de body, query y params con Zod
-│       ├── auth.ts             # JWT (esqueleto: se completa en RF-01/RF-02)
-│       ├── require-role.ts     # requireRole('ADMIN' | 'CLIENTE') (se aplica en la Fase 1)
+│       ├── auth.ts             # crearAuth(tokens): exige Authorization: Bearer <token>
+│       ├── require-role.ts     # requireRole('ADMIN' | 'CLIENTE') con el rol del token
+│       ├── limite-intentos.ts  # límite de intentos de inicio de sesión (429)
 │       └── request-logger.ts   # registro de peticiones (desactivado en NODE_ENV=test)
 ├── generated/prisma/           # cliente generado por Prisma (no se versiona)
 └── modules/
+    ├── auth/
+    │   ├── auth.routes.ts        # /auth/registro, /auth/login, /auth/perfil
+    │   ├── auth.controller.ts    # HTTP, sin lógica
+    │   ├── auth.service.ts       # reglas: registro de clientes, login, perfil
+    │   ├── auth.repository.ts    # Prisma: usuarios (nunca devuelve el hash al exterior)
+    │   └── auth.schemas.ts       # validación Zod de registro y login
     └── health/
         ├── health.routes.ts      # rutas: conecta las capas
         ├── health.controller.ts  # HTTP: lee req y responde res, sin lógica
@@ -278,7 +423,8 @@ tests/                          # pruebas unitarias (Vitest + Supertest)
 
 Flujo de cada petición: **rutas → controlador → servicio → repositorio**. El controlador no tiene
 lógica de negocio, el servicio no conoce Express y solo el repositorio usa Prisma. `crearApp(env, { prisma })`
-recibe el cliente inyectado, de modo que las pruebas eligen la base de datos. Al recibir SIGINT o SIGTERM,
+recibe el cliente inyectado, de modo que las pruebas eligen la base de datos; también admite un
+`reloj` (para simular la expiración de los tokens) y un `limitadorLogin` (para probar el 429 con un límite bajo). Al recibir SIGINT o SIGTERM,
 `server.ts` deja de aceptar peticiones y cierra las conexiones con PostgreSQL antes de salir.
 Cada módulo nuevo se registra en `src/routes.ts`.
 
@@ -293,7 +439,12 @@ Cada módulo nuevo se registra en `src/routes.ts`.
 | Postman     | `postman/` (colección + entornos)                       | `npm run test:postman`     |
 
 - **Unitarias**: capas, contrato de errores (404, 400 `JSON_INVALIDO`, 413, 415, 500, 503 degradado),
-  401/403 de `auth` y `requireRole`, validación con Zod, variables de entorno y hash de contraseñas.
+  401/403 de `auth` y `requireRole`, tokens JWT (firma, alteración, algoritmo, expiración con reloj simulado),
+  servicio/repositorio/esquemas de `auth`, límite de intentos (429), validación con Zod, variables de
+  entorno y hash de contraseñas.
+- **Integración de `auth`** (`tests/integracion/auth.integracion.test.ts`): registro, duplicado, validaciones,
+  login de cliente y de ADMIN, 401 idénticos, cuenta desactivada, perfil, token alterado y expirado, y 429 con
+  un límite bajo. Sus usuarios usan el dominio `auth.creafacil.test` y se borran al terminar.
 - **Integración**: necesitan `.env.test` con `DATABASE_URL_TEST` (copia `.env.test.example`). Por seguridad,
   el nombre de la base de datos **debe terminar en `_test`**; el `globalSetup` aplica las migraciones antes.
 - **Cobertura** (`@vitest/coverage-v8`): mide solo `src/`, sin `src/generated/` (cliente de Prisma) ni
@@ -301,8 +452,9 @@ Cada módulo nuevo se registra en `src/routes.ts`.
   sentencias y funciones y **75 %** de ramas; si no se alcanzan, el comando (y la CI) falla.
   El informe HTML queda en `coverage/index.html`.
 - **Postman**: con el servidor en marcha (`npm run dev`), `npm run test:postman` ejecuta la colección con
-  newman (descargado con `npx` en la versión fijada 6.2.3; no es dependencia del proyecto). Cómo importarla
-  en la app de Postman: [`postman/README.md`](postman/README.md).
+  newman (descargado con `npx` en la versión fijada 6.2.3; no es dependencia del proyecto). El script
+  `scripts/postman.js` lee `ADMIN_EMAIL` y `ADMIN_PASSWORD` del `.env` para el inicio de sesión de la
+  administradora sin mostrarlos. Cómo importarla en la app de Postman: [`postman/README.md`](postman/README.md).
 
 ## Integración continua (GitHub Actions)
 
@@ -317,7 +469,9 @@ y en cada pull request, en `ubuntu-latest` con **Node.js 24 LTS** y un servicio 
 5. Arranca el servidor compilado (`npm start`), espera a `/health`, ejecuta `db:seed` y la colección de
    Postman con newman (informe JUnit como artefacto `newman`). Si algo falla, sube `servidor.log`.
 
-Las variables de la CI son **de prueba** (no hay secretos reales). Los resultados se ven en la pestaña
+Las variables de la CI son **de prueba** (no hay secretos reales). La CI fija `LOGIN_MAX_INTENTOS=1000`
+para que newman no se bloquee y pasa a newman las credenciales de prueba de la administradora con
+`--env-var adminEmail=… --env-var adminPassword=…` (los entornos versionados no llevan la contraseña). Los resultados se ven en la pestaña
 **Actions** del repositorio y en el badge del inicio de este README.
 
 ## Ramas
