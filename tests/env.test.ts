@@ -31,6 +31,46 @@ describe('cargarEnv', () => {
   it('no exige las variables ADMIN_* (solo las usa el seed)', () => {
     expect(() => cargarEnv(envValido)).not.toThrow();
   });
+
+  it('JWT_EXPIRES_IN es 8h por defecto y acepta otras duraciones válidas', () => {
+    expect(cargarEnv(envValido).JWT_EXPIRES_IN).toBe('8h');
+    expect(cargarEnv({ ...envValido, JWT_EXPIRES_IN: '30m' }).JWT_EXPIRES_IN).toBe('30m');
+  });
+
+  it.each(['ocho horas', '0h', '8x'])('rechaza JWT_EXPIRES_IN=%j', (valor) => {
+    expect(() => cargarEnv({ ...envValido, JWT_EXPIRES_IN: valor })).toThrow(/JWT_EXPIRES_IN/);
+  });
+
+  it('límite de inicio de sesión: 5 intentos cada 15 minutos por defecto', () => {
+    const env = cargarEnv(envValido);
+    expect(env.LOGIN_MAX_INTENTOS).toBe(5);
+    expect(env.LOGIN_VENTANA_MINUTOS).toBe(15);
+  });
+
+  it('en NODE_ENV=test el límite por defecto es alto para no bloquear las pruebas', () => {
+    expect(cargarEnv({ ...envValido, NODE_ENV: 'test' }).LOGIN_MAX_INTENTOS).toBe(1000);
+  });
+
+  it('LOGIN_MAX_INTENTOS y LOGIN_VENTANA_MINUTOS se configuran por variables (también en test)', () => {
+    const env = cargarEnv({
+      ...envValido,
+      NODE_ENV: 'test',
+      LOGIN_MAX_INTENTOS: '2',
+      LOGIN_VENTANA_MINUTOS: '1',
+    });
+    expect(env.LOGIN_MAX_INTENTOS).toBe(2);
+    expect(env.LOGIN_VENTANA_MINUTOS).toBe(1);
+  });
+
+  it.each([
+    ['LOGIN_MAX_INTENTOS', '0', /LOGIN_MAX_INTENTOS debe ser al menos 1/],
+    ['LOGIN_MAX_INTENTOS', 'muchos', /LOGIN_MAX_INTENTOS debe ser un número entero/],
+    ['LOGIN_MAX_INTENTOS', '2.5', /LOGIN_MAX_INTENTOS debe ser un número entero/],
+    ['LOGIN_VENTANA_MINUTOS', '0', /LOGIN_VENTANA_MINUTOS debe ser al menos 1/],
+    ['LOGIN_VENTANA_MINUTOS', '2000', /LOGIN_VENTANA_MINUTOS no puede superar 1440/],
+  ])('rechaza %s=%j con un mensaje claro', (variable, valor, mensaje) => {
+    expect(() => cargarEnv({ ...envValido, [variable]: valor })).toThrow(mensaje);
+  });
 });
 
 describe('cargarEnvSeed', () => {
