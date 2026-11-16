@@ -25,6 +25,11 @@ autenticación y errores» (RNF-02, RNF-07).
 | Autenticación | `GET {{baseUrl}}/auth/perfil` sin token               | 401 `NO_AUTENTICADO`                          |
 | Autenticación | `GET {{baseUrl}}/auth/perfil` con token alterado      | 401 `TOKEN_INVALIDO`                          |
 | Autenticación | `POST {{baseUrl}}/auth/login` (administradora)        | 200 con `usuario.rol = "ADMIN"`               |
+| Permisos      | `PATCH {{baseUrl}}/auth/perfil` con `tokenCliente`    | 200 con `{ usuario }` (nombre y teléfono)     |
+| Permisos      | `PATCH {{baseUrl}}/auth/perfil` con `rol`             | 400 `VALIDACION` (detalle en `rol`)           |
+| Permisos      | `GET {{baseUrl}}/admin/clientes` sin token            | 401 `NO_AUTENTICADO`                          |
+| Permisos      | `GET {{baseUrl}}/admin/clientes` con `tokenCliente`   | 403 `PROHIBIDO`                               |
+| Permisos      | `GET {{baseUrl}}/admin/clientes?q=` con `tokenAdmin`  | 200 con `{ datos, paginacion }`               |
 | Errores       | `GET {{baseUrl}}/no-existe`                           | 404 `RUTA_NO_ENCONTRADA`                      |
 | Errores       | `POST {{baseUrl}}/health` con JSON incompleto         | 400 `JSON_INVALIDO`                           |
 | Errores       | `POST {{baseUrl}}/health` con más de 1 MB             | 413 `CUERPO_DEMASIADO_GRANDE`                 |
@@ -33,13 +38,17 @@ autenticación y errores» (RNF-02, RNF-07).
 Cada petición comprueba el código HTTP y la forma del cuerpo. A nivel de colección se comprueba en
 **todas** las respuestas que el `Content-Type` es JSON, que están las cabeceras de seguridad
 (`X-Content-Type-Options: nosniff`, sin `X-Powered-By`) y, en los errores, la forma
-`{ "error": { "codigo", "mensaje" } }` sin pilas de error. En total: **15 peticiones y 84 aserciones**.
+`{ "error": { "codigo", "mensaje" } }` sin pilas de error. En total: **20 peticiones y 110 aserciones**.
 
 Variables de colección que rellenan los scripts: `emailCliente` (generado en cada ejecución como
-`cliente+<marca de tiempo>@creafacil.test`), `passwordCliente`, `tokenCliente` y `tokenAdmin`.
+`cliente+<marca de tiempo>@creafacil.test`), `passwordCliente`, `tokenCliente`, `tokenAdmin` y `qCliente`
+(el correo del cliente codificado para la URL: el `+` en una query significa espacio).
+
+La carpeta **Permisos** reutiliza `tokenCliente` y `tokenAdmin` de **Autenticación**: si la ejecutas sola,
+ejecuta antes «Inicio de sesión del cliente» y «Inicio de sesión de la administradora».
 El cuerpo de más de 1 MB lo genera el _pre-request script_ de «Cuerpo demasiado grande (413)».
 
-> Los 403 por rol (cliente en una ruta de administración) llegarán con las rutas de la subfase 1.2 (RF-02).
+> RF-02: los 403 por rol se comprueban en la carpeta **Permisos** (un cliente en `/admin/clientes`).
 
 ## La contraseña de la administradora no se versiona
 
@@ -67,7 +76,7 @@ El cuerpo de más de 1 MB lo genera el _pre-request script_ de «Cuerpo demasiad
    el **Current value** de `adminPassword` (ver arriba).
 4. En **Collections**, abre «CreaFácil API» y pulsa **Run** (o clic derecho → _Run collection_)
    y después **Run CreaFácil API**.
-5. Deberías ver las 15 peticiones en verde y 84 pruebas superadas (_Passed_). También puedes abrir una
+5. Deberías ver las 20 peticiones en verde y 110 pruebas superadas (_Passed_). También puedes abrir una
    petición, pulsar **Send** y ver sus resultados en la pestaña **Test Results** de la respuesta.
 
 ## Ejecutarla desde la terminal con newman

@@ -698,6 +698,328 @@
       ]
     },
     {
+      "name": "Permisos",
+      "description": "RF-01, RF-02, RNF-03, RN-05. Edición del propio perfil y rutas exclusivas de la administradora. Reutiliza tokenCliente y tokenAdmin de la carpeta «Autenticación» (ejecútala antes).",
+      "item": [
+        {
+          "name": "Editar el perfil del cliente (200)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const cuerpo = pm.response.json();",
+                  "",
+                  "pm.test('devuelve { usuario } con la misma forma que GET /auth/perfil', function () {",
+                  "    pm.expect(Object.keys(cuerpo)).to.eql(['usuario']);",
+                  "    pm.expect(Object.keys(cuerpo.usuario).sort()).to.eql(['email', 'id', 'nombre', 'rol', 'telefono']);",
+                  "});",
+                  "",
+                  "pm.test('guarda el nombre y el teléfono normalizado; el correo y el rol no cambian', function () {",
+                  "    pm.expect(cuerpo.usuario.nombre).to.eql('Cliente Postman Editado');",
+                  "    pm.expect(cuerpo.usuario.telefono).to.eql('+593997654321');",
+                  "    pm.expect(cuerpo.usuario.email).to.eql(pm.collectionVariables.get('emailCliente'));",
+                  "    pm.expect(cuerpo.usuario.rol).to.eql('CLIENTE');",
+                  "});",
+                  "",
+                  "pm.test('nunca devuelve la contraseña ni su hash (RNF-01)', function () {",
+                  "    pm.expect(pm.response.text()).to.not.match(/passwordHash|password|\\$2[aby]\\$/);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenCliente}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nombre\": \"Cliente Postman Editado\",\n  \"telefono\": \"+593 99 765 4321\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/perfil",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "perfil"]
+            },
+            "description": "PATCH /api/v1/auth/perfil con `Authorization: Bearer {{tokenCliente}}` — solo se pueden cambiar `nombre` y `telefono` (`null` o `\"\"` borra el teléfono). Se actualiza siempre la persona del token (RN-05). 200 con `{ usuario }`."
+          },
+          "response": []
+        },
+        {
+          "name": "Editar el perfil con un campo prohibido (400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 400', function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "",
+                  "pm.test('VALIDACION con un detalle en el campo rol', function () {",
+                  "    const cuerpo = pm.response.json();",
+                  "    pm.expect(cuerpo.error.codigo).to.eql('VALIDACION');",
+                  "    pm.expect(cuerpo.error.detalles).to.deep.include({",
+                  "        campo: 'rol',",
+                  "        ubicacion: 'body',",
+                  "        mensaje: 'Este campo no se puede modificar: solo se pueden cambiar nombre y telefono'",
+                  "    });",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenCliente}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nombre\": \"Intento de cambio de rol\",\n  \"rol\": \"ADMIN\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/auth/perfil",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "perfil"]
+            },
+            "description": "PATCH /api/v1/auth/perfil intentando cambiar `rol` — 400 VALIDACION. Lo mismo con `email`, `password`, `id`, `activo` u otro campo: el esquema es estricto y no cambia nada."
+          },
+          "response": []
+        },
+        {
+          "name": "Clientes sin token (401)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 401 NO_AUTENTICADO', function () {",
+                  "    pm.response.to.have.status(401);",
+                  "    pm.expect(pm.response.json().error.codigo).to.eql('NO_AUTENTICADO');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/clientes",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "clientes"]
+            },
+            "description": "GET /api/v1/admin/clientes sin `Authorization` — 401 NO_AUTENTICADO."
+          },
+          "response": []
+        },
+        {
+          "name": "Clientes con el token del cliente (403)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 403', function () {",
+                  "    pm.response.to.have.status(403);",
+                  "});",
+                  "",
+                  "pm.test('PROHIBIDO con mensaje en español (RF-02: la API rechaza al cliente)', function () {",
+                  "    pm.expect(pm.response.json()).to.eql({",
+                  "        error: { codigo: 'PROHIBIDO', mensaje: 'No tienes permiso para realizar esta acción.' }",
+                  "    });",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenCliente}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/clientes",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "clientes"]
+            },
+            "description": "GET /api/v1/admin/clientes con `Authorization: Bearer {{tokenCliente}}` — 403 PROHIBIDO (RF-02, RNF-03)."
+          },
+          "response": []
+        },
+        {
+          "name": "Clientes con el token de la administradora (200)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// El correo lleva «+», que en una URL significa espacio: se codifica para buscarlo con ?q=.",
+                  "pm.collectionVariables.set('qCliente', encodeURIComponent(pm.collectionVariables.get('emailCliente')));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const cuerpo = pm.response.json();",
+                  "",
+                  "pm.test('devuelve { datos, paginacion }', function () {",
+                  "    pm.expect(Object.keys(cuerpo).sort()).to.eql(['datos', 'paginacion']);",
+                  "    pm.expect(cuerpo.datos).to.be.an('array');",
+                  "    pm.expect(Object.keys(cuerpo.paginacion).sort()).to.eql(['pagina', 'porPagina', 'total', 'totalPaginas']);",
+                  "    pm.expect(cuerpo.paginacion.pagina).to.eql(1);",
+                  "    pm.expect(cuerpo.paginacion.porPagina).to.eql(20);",
+                  "});",
+                  "",
+                  "pm.test('la búsqueda ?q= encuentra al cliente de esta ejecución con su perfil editado', function () {",
+                  "    pm.expect(cuerpo.paginacion.total).to.eql(1);",
+                  "    pm.expect(cuerpo.paginacion.totalPaginas).to.eql(1);",
+                  "    const cliente = cuerpo.datos[0];",
+                  "    pm.expect(Object.keys(cliente).sort()).to.eql(['activo', 'creadoEn', 'email', 'id', 'nombre', 'telefono']);",
+                  "    pm.expect(cliente.email).to.eql(pm.collectionVariables.get('emailCliente'));",
+                  "    pm.expect(cliente.nombre).to.eql('Cliente Postman Editado');",
+                  "    pm.expect(cliente.activo).to.eql(true);",
+                  "    pm.expect(new Date(cliente.creadoEn).toISOString()).to.eql(cliente.creadoEn);",
+                  "});",
+                  "",
+                  "pm.test('nunca devuelve contraseñas ni hashes (RNF-01)', function () {",
+                  "    pm.expect(pm.response.text()).to.not.match(/passwordHash|password|\\$2[aby]\\$/);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenAdmin}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/clientes?q={{qCliente}}&pagina=1&porPagina=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "clientes"],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "{{qCliente}}",
+                  "description": "Busca en nombre o correo (opcional)"
+                },
+                {
+                  "key": "pagina",
+                  "value": "1",
+                  "description": "Desde 1 (por defecto 1)"
+                },
+                {
+                  "key": "porPagina",
+                  "value": "20",
+                  "description": "De 1 a 100 (por defecto 20)"
+                }
+              ]
+            },
+            "description": "GET /api/v1/admin/clientes con `Authorization: Bearer {{tokenAdmin}}` — 200 con `{ datos: [{ id, nombre, email, telefono, activo, creadoEn }], paginacion: { pagina, porPagina, total, totalPaginas } }`. Parámetros opcionales: `q`, `pagina`, `porPagina`."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
       "name": "Errores",
       "description": "Contrato de errores de la API: siempre JSON con `{ error: { codigo, mensaje, detalles? } }` y el código HTTP correcto (RNF-02). Los 401 de autenticación están en la carpeta Autenticación; los 403 por rol llegarán en la subfase 1.2 (RF-02).",
       "item": [
@@ -921,6 +1243,11 @@
     },
     {
       "key": "tokenAdmin",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "qCliente",
       "value": "",
       "type": "string"
     }
