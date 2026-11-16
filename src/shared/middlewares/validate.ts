@@ -25,6 +25,27 @@ const UBICACIONES: readonly Ubicacion[] = ['body', 'query', 'params'];
 /** Clave interna de `res.locals` donde se guardan los datos validados. */
 const CLAVE_LOCALS = 'datosValidados';
 
+function rutaCampo(ruta: readonly PropertyKey[], ubicacion: Ubicacion): string {
+  return ruta.length > 0 ? ruta.map(String).join('.') : ubicacion;
+}
+
+/**
+ * Convierte un error de Zod en detalles `{ campo, ubicacion, mensaje }`.
+ * Los objetos estrictos (`z.strictObject`) informan de TODOS los campos no permitidos en un único
+ * error sin ruta; aquí se desglosa en un detalle por campo (`campo: "rol"`, `campo: "email"`…) para
+ * que las apps puedan señalar cada uno.
+ */
+export function detallesDeIssue(issue: z.core.$ZodIssue, ubicacion: Ubicacion): DetalleError[] {
+  if (issue.code === 'unrecognized_keys') {
+    return issue.keys.map((clave) => ({
+      campo: rutaCampo([...issue.path, clave], ubicacion),
+      ubicacion,
+      mensaje: issue.message,
+    }));
+  }
+  return [{ campo: rutaCampo(issue.path, ubicacion), ubicacion, mensaje: issue.message }];
+}
+
 /**
  * Valida `body`, `query` y `params` con Zod (RNF-04).
  *
@@ -64,11 +85,7 @@ export function validate(esquemas: EsquemasValidacion): RequestHandler {
         validados[ubicacion] = resultado.data;
       } else {
         for (const issue of resultado.error.issues) {
-          detalles.push({
-            campo: issue.path.length > 0 ? issue.path.map(String).join('.') : ubicacion,
-            ubicacion,
-            mensaje: issue.message,
-          });
+          detalles.push(...detallesDeIssue(issue, ubicacion));
         }
       }
     }
