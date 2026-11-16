@@ -4,6 +4,7 @@ import type { PrismaClient } from '../../shared/database/prisma.js';
 import { crearAuth } from '../../shared/middlewares/auth.js';
 import { requireRole } from '../../shared/middlewares/require-role.js';
 import type { ServicioTokens } from '../../shared/security/tokens.js';
+import { crearClientesAdminRouter } from '../usuarios/usuarios.routes.js';
 
 /**
  * Grupo de rutas de la administradora: `/api/v1/admin/*` (RF-02, RNF-03, RN-05).
@@ -35,7 +36,9 @@ export interface ModuloAdmin {
 }
 
 /** Registro de las secciones administrativas. Añade aquí las de las fases siguientes. */
-export const MODULOS_ADMIN: readonly ModuloAdmin[] = [];
+export const MODULOS_ADMIN: readonly ModuloAdmin[] = [
+  { prefijo: '/clientes', crearRouter: ({ prisma }) => crearClientesAdminRouter(prisma) },
+];
 
 export function crearAdminRouter(
   dependencias: DependenciasAdmin,
