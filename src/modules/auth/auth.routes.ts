@@ -6,7 +6,7 @@ import { validate } from '../../shared/middlewares/validate.js';
 import type { ServicioTokens } from '../../shared/security/tokens.js';
 import { crearAuthController } from './auth.controller.js';
 import { crearAuthRepository } from './auth.repository.js';
-import { esquemasLogin, esquemasRegistro } from './auth.schemas.js';
+import { esquemasActualizarPerfil, esquemasLogin, esquemasRegistro } from './auth.schemas.js';
 import { crearAuthService } from './auth.service.js';
 
 export interface DependenciasAuthRouter {
@@ -33,6 +33,9 @@ export function crearAuthRouter({
   router.post('/registro', validate(esquemasRegistro), controlador.registrar);
   // El limitador va antes de validar: cualquier intento fallido (también un 400) cuenta.
   router.post('/login', limitadorLogin, validate(esquemasLogin), controlador.iniciarSesion);
-  router.get('/perfil', crearAuth(tokens), controlador.obtenerPerfil);
+  const auth = crearAuth(tokens);
+  router.get('/perfil', auth, controlador.obtenerPerfil);
+  // Cualquier rol edita SU perfil: auth va antes de validar (sin token → 401, no 400).
+  router.patch('/perfil', auth, validate(esquemasActualizarPerfil), controlador.actualizarPerfil);
   return router;
 }

@@ -3,11 +3,17 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   type AuthRepository,
   crearAuthRepository,
+  type CambiosPerfil,
   esCorreoDuplicado,
+  esRegistroInexistente,
   type NuevoCliente,
   type UsuarioConCredenciales,
 } from '../src/modules/auth/auth.repository.js';
-import { esquemasLogin, esquemasRegistro } from '../src/modules/auth/auth.schemas.js';
+import {
+  esquemasActualizarPerfil,
+  esquemasLogin,
+  esquemasRegistro,
+} from '../src/modules/auth/auth.schemas.js';
 import {
   type Contrasenas,
   crearAuthService,
@@ -57,6 +63,18 @@ function repositorioFalso(cambios: Partial<AuthRepository> = {}): AuthRepository
       }),
     buscarCredenciales: (email) => Promise.resolve(email === cuenta.email ? cuenta : null),
     buscarPorId: (id) => Promise.resolve(id === ID ? cuenta : null),
+    actualizarPerfil: (id, datos) =>
+      Promise.resolve(
+        id === ID
+          ? {
+              id,
+              nombre: datos.nombre ?? cuenta.nombre,
+              email: cuenta.email,
+              telefono: datos.telefono === undefined ? cuenta.telefono : datos.telefono,
+              rol: cuenta.rol,
+            }
+          : null,
+      ),
     ...cambios,
   };
 }
@@ -223,6 +241,71 @@ describe('servicio de autenticación', () => {
     expect((await capturar(desactivada.obtenerPerfil(ID))).estado).toBe(401);
   });
 
+  describe('actualizarPerfil (RF-01, RN-05)', () => {
+    it('actualiza con el id recibido (el del token) y solo pasa los campos enviados', async () => {
+      const base = repositorioFalso();
+      const actualizarPerfil = vi.fn((id: string, datos: CambiosPerfil) =>
+        base.actualizarPerfil(id, datos),
+      );
+      const servicio = crearAuthService({
+        repositorio: repositorioFalso({ actualizarPerfil }),
+        tokens,
+        contrasenas: contrasenasFalsas(),
+      });
+
+      await expect(servicio.actualizarPerfil(ID, { nombre: 'Ana María' })).resolves.toEqual({
+        id: ID,
+        nombre: 'Ana María',
+        email: cuenta.email,
+        telefono: null,
+        rol: 'CLIENTE',
+      });
+      expect(actualizarPerfil).toHaveBeenLastCalledWith(ID, { nombre: 'Ana María' });
+
+      await servicio.actualizarPerfil(ID, { telefono: '0991234567' });
+      expect(actualizarPerfil).toHaveBeenLastCalledWith(ID, { telefono: '0991234567' });
+    });
+
+    it('telefono: null se pasa tal cual para borrarlo', async () => {
+      const base = repositorioFalso();
+      const actualizarPerfil = vi.fn((id: string, datos: CambiosPerfil) =>
+        base.actualizarPerfil(id, datos),
+      );
+      const servicio = crearAuthService({
+        repositorio: repositorioFalso({ actualizarPerfil }),
+        tokens,
+        contrasenas: contrasenasFalsas(),
+      });
+      const usuario = await servicio.actualizarPerfil(ID, { telefono: null });
+      expect(actualizarPerfil).toHaveBeenCalledWith(ID, { telefono: null });
+      expect(usuario.telefono).toBeNull();
+    });
+
+    it('devuelve solo los campos públicos aunque el repositorio traiga más', async () => {
+      const servicio = crearAuthService({
+        repositorio: repositorioFalso({ actualizarPerfil: () => Promise.resolve(cuenta) }),
+        tokens,
+        contrasenas: contrasenasFalsas(),
+      });
+      const usuario = await servicio.actualizarPerfil(ID, { nombre: 'Ana' });
+      expect(Object.keys(usuario).sort()).toEqual(['email', 'id', 'nombre', 'rol', 'telefono']);
+    });
+
+    it('cuenta inexistente o desactivada (el repositorio devuelve null) → 401', async () => {
+      const servicio = crearAuthService({
+        repositorio: repositorioFalso({ actualizarPerfil: () => Promise.resolve(null) }),
+        tokens,
+        contrasenas: contrasenasFalsas(),
+      });
+      const error = await capturar(servicio.actualizarPerfil(ID, { nombre: 'Ana' }));
+      expect([error.estado, error.codigo, error.message]).toEqual([
+        401,
+        'NO_AUTENTICADO',
+        'Tu sesión ya no es válida. Inicia sesión de nuevo.',
+      ]);
+    });
+  });
+
   it('por defecto usa bcrypt real (verifica contra el hash ficticio sin lanzar)', async () => {
     const servicio = crearAuthService({ repositorio: repositorioFalso(), tokens });
     const error = await capturar(
@@ -253,6 +336,42 @@ describe('repositorio de autenticación', () => {
       usuario: { create: () => Promise.reject(new Error('conexión perdida')) },
     } as unknown as Pick<PrismaClient, 'usuario'>);
     await expect(caido.crearCliente(datos)).rejects.toThrow('conexión perdida');
+  });
+
+  it('esRegistroInexistente reconoce el error P2025 de Prisma', () => {
+    expect(esRegistroInexistente({ code: 'P2025' })).toBe(true);
+    expect(esRegistroInexistente({ code: 'P2002' })).toBe(false);
+    expect(esRegistroInexistente('P2025')).toBe(false);
+  });
+
+  it('actualizarPerfil filtra por id y cuenta activa, y solo escribe los campos enviados', async () => {
+    const update = vi.fn(() => Promise.resolve({ id: ID }));
+    const repositorio = crearAuthRepository({ usuario: { update } } as unknown as Pick<
+      PrismaClient,
+      'usuario'
+    >);
+
+    await repositorio.actualizarPerfil(ID, { nombre: 'Ana' });
+    expect(update).toHaveBeenLastCalledWith(
+      expect.objectContaining({ where: { id: ID, activo: true }, data: { nombre: 'Ana' } }),
+    );
+
+    await repositorio.actualizarPerfil(ID, { telefono: null });
+    expect(update).toHaveBeenLastCalledWith(expect.objectContaining({ data: { telefono: null } }));
+  });
+
+  it('actualizarPerfil devuelve null si no hay cuenta activa (P2025) y relanza otros errores', async () => {
+    const inexistente = crearAuthRepository({
+      usuario: {
+        update: () => Promise.reject(Object.assign(new Error('no existe'), { code: 'P2025' })),
+      },
+    } as unknown as Pick<PrismaClient, 'usuario'>);
+    await expect(inexistente.actualizarPerfil(ID, { nombre: 'Ana' })).resolves.toBeNull();
+
+    const caido = crearAuthRepository({
+      usuario: { update: () => Promise.reject(new Error('conexión perdida')) },
+    } as unknown as Pick<PrismaClient, 'usuario'>);
+    await expect(caido.actualizarPerfil(ID, { nombre: 'Ana' })).rejects.toThrow('conexión perdida');
   });
 
   it('crearCliente fija siempre el rol CLIENTE', async () => {
@@ -316,6 +435,66 @@ describe('esquemas de autenticación', () => {
 
   it('descarta otros campos desconocidos', () => {
     expect(esquemasRegistro.body.parse({ ...valido, activo: false })).not.toHaveProperty('activo');
+  });
+
+  describe('edición del perfil (esquema estricto)', () => {
+    const perfil = esquemasActualizarPerfil.body;
+
+    it('acepta solo nombre, solo teléfono o ambos, normalizados', () => {
+      expect(perfil.parse({ nombre: '  Ana María ' })).toEqual({ nombre: 'Ana María' });
+      expect(perfil.parse({ telefono: '+593 99 123-4567' })).toEqual({
+        telefono: '+593991234567',
+      });
+      expect(perfil.parse({ nombre: 'Ana', telefono: '0991234567' })).toEqual({
+        nombre: 'Ana',
+        telefono: '0991234567',
+      });
+    });
+
+    it.each([null, '', '   '])(
+      'telefono %j se convierte en null (borra el teléfono)',
+      (telefono) => {
+        expect(perfil.parse({ telefono })).toEqual({ telefono: null });
+      },
+    );
+
+    it.each([{}, undefined, null])('sin campos (%j) exige al menos uno', (cuerpo) => {
+      const resultado = perfil.safeParse(cuerpo);
+      expect(resultado.success).toBe(false);
+      expect(resultado.error?.issues[0]?.message).toBe(
+        'Envía al menos un campo para actualizar: nombre o telefono',
+      );
+    });
+
+    it.each(['email', 'rol', 'password', 'id', 'activo', 'passwordHash', 'creadoEn'])(
+      'rechaza el campo %s con un error de campo no permitido',
+      (campo) => {
+        const resultado = perfil.safeParse({ nombre: 'Ana', [campo]: 'x' });
+        expect(resultado.success).toBe(false);
+        expect(resultado.error?.issues).toContainEqual(
+          expect.objectContaining({
+            code: 'unrecognized_keys',
+            keys: [campo],
+            message: 'Este campo no se puede modificar: solo se pueden cambiar nombre y telefono',
+          }),
+        );
+      },
+    );
+
+    it.each([
+      [{ nombre: 'A' }, 'El nombre debe tener al menos 2 caracteres'],
+      [{ nombre: 'x'.repeat(121) }, 'El nombre no puede superar 120 caracteres'],
+      [{ nombre: 123 }, 'El nombre es obligatorio'],
+      [{ telefono: '123' }, 'El teléfono debe tener de 7 a 15 dígitos'],
+    ])('rechaza %j', (cuerpo, mensaje) => {
+      const resultado = perfil.safeParse(cuerpo);
+      expect(resultado.success).toBe(false);
+      expect(resultado.error?.issues[0]?.message).toContain(mensaje);
+    });
+
+    it('rechaza un cuerpo que no es un objeto', () => {
+      expect(perfil.safeParse(['nombre']).success).toBe(false);
+    });
   });
 
   it('el login normaliza el correo y exige la contraseña', () => {

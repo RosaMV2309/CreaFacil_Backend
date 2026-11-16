@@ -1,8 +1,8 @@
 import type { RequestHandler } from 'express';
 
-import { exigirUsuario } from '../../shared/middlewares/auth.js';
+import { idUsuarioActual } from '../../shared/middlewares/usuario-actual.js';
 import { datosValidados } from '../../shared/middlewares/validate.js';
-import { esquemasLogin, esquemasRegistro } from './auth.schemas.js';
+import { esquemasActualizarPerfil, esquemasLogin, esquemasRegistro } from './auth.schemas.js';
 import type { AuthService } from './auth.service.js';
 
 /**
@@ -13,6 +13,7 @@ export interface AuthController {
   registrar: RequestHandler;
   iniciarSesion: RequestHandler;
   obtenerPerfil: RequestHandler;
+  actualizarPerfil: RequestHandler;
 }
 
 export function crearAuthController(servicio: AuthService): AuthController {
@@ -28,8 +29,15 @@ export function crearAuthController(servicio: AuthService): AuthController {
     },
 
     obtenerPerfil: async (_req, res) => {
-      const { id } = exigirUsuario(res);
-      res.status(200).json({ usuario: await servicio.obtenerPerfil(id) });
+      res.status(200).json({ usuario: await servicio.obtenerPerfil(idUsuarioActual(res)) });
+    },
+
+    /** RN-05: se actualiza la persona del token; el cuerpo no puede traer un id (esquema estricto). */
+    actualizarPerfil: async (_req, res) => {
+      const { body } = datosValidados(res, esquemasActualizarPerfil);
+      res.status(200).json({
+        usuario: await servicio.actualizarPerfil(idUsuarioActual(res), body),
+      });
     },
   };
 }

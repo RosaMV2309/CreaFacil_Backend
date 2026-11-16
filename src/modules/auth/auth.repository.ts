@@ -31,11 +31,27 @@ export interface NuevoCliente {
   readonly telefono: string | null;
 }
 
+/** Cambios permitidos en el propio perfil. `telefono: null` lo borra; `undefined` no lo cambia. */
+export interface CambiosPerfil {
+  readonly nombre?: string;
+  readonly telefono?: string | null;
+}
+
 export interface AuthRepository {
   /** Crea una cuenta con rol CLIENTE. Devuelve `null` si el correo ya existe. */
   crearCliente(datos: NuevoCliente): Promise<UsuarioPublico | null>;
   buscarCredenciales(email: string): Promise<UsuarioConCredenciales | null>;
   buscarPorId(id: string): Promise<UsuarioConEstado | null>;
+  /**
+   * Actualiza el perfil de la cuenta `id` SOLO si existe y está activa (una única consulta, sin
+   * carreras entre comprobar y escribir). Devuelve `null` si no existe o está desactivada.
+   */
+  actualizarPerfil(id: string, cambios: CambiosPerfil): Promise<UsuarioPublico | null>;
+}
+
+/** Prisma lanza P2025 cuando `update` no encuentra el registro (con los filtros del `where`). */
+export function esRegistroInexistente(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === 'P2025';
 }
 
 const camposPublicos = {
@@ -79,5 +95,24 @@ export function crearAuthRepository(prisma: Pick<PrismaClient, 'usuario'>): Auth
         where: { id },
         select: { ...camposPublicos, activo: true },
       }),
+
+    actualizarPerfil: async (id, { nombre, telefono }) => {
+      try {
+        return await prisma.usuario.update({
+          where: { id, activo: true },
+          // Solo los campos editables: aunque llegara otro, aquí no se escribiría.
+          data: {
+            ...(nombre !== undefined ? { nombre } : {}),
+            ...(telefono !== undefined ? { telefono } : {}),
+          },
+          select: camposPublicos,
+        });
+      } catch (error) {
+        if (esRegistroInexistente(error)) {
+          return null;
+        }
+        throw error;
+      }
+    },
   };
 }
