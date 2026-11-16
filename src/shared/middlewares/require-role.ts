@@ -5,10 +5,10 @@ import { type Rol, usuarioAutenticado } from './auth.js';
 
 /**
  * Exige que la persona autenticada tenga uno de los roles indicados (RF-02, RNF-03, RN-05).
- * Se usa siempre después de `auth` (creado con `crearAuth(tokens)`), con el rol del token:
- * `router.get('/admin/...', auth, requireRole('ADMIN'), ...)`.
+ * Se usa siempre después de `auth` (creado con `crearAuth(tokens)`), con el rol del token.
  *
- * Se aplica a las rutas administrativas en la subfase 1.2 (RF-02, RN-05).
+ * Las rutas de la administradora NO lo aplican una a una: el grupo `/api/v1/admin`
+ * (`src/modules/admin/admin.routes.ts`) aplica `auth` + `requireRole('ADMIN')` una sola vez.
  * - Sin persona autenticada → 401 `NO_AUTENTICADO`.
  * - Con un rol no permitido → 403 `PROHIBIDO`.
  */

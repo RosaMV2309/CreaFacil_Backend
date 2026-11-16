@@ -169,13 +169,15 @@ Las pruebas de integración leen `DATABASE_URL_TEST` de `.env.test` (ignorado po
 
 ## Endpoints
 
-| Método | Ruta                    | Autenticación | Descripción                             |
-| ------ | ----------------------- | ------------- | --------------------------------------- |
-| GET    | `/api/v1`               | No            | Nombre y versión de la API              |
-| GET    | `/api/v1/health`        | No            | Estado de la API y de PostgreSQL        |
-| POST   | `/api/v1/auth/registro` | No            | Registro de clientes (RF-01)            |
-| POST   | `/api/v1/auth/login`    | No            | Inicio de sesión (clientes y ADMIN)     |
-| GET    | `/api/v1/auth/perfil`   | Bearer        | Datos de la persona autenticada (RF-01) |
+| Método | Ruta                     | Autenticación  | Descripción                                |
+| ------ | ------------------------ | -------------- | ------------------------------------------ |
+| GET    | `/api/v1`                | No             | Nombre y versión de la API                 |
+| GET    | `/api/v1/health`         | No             | Estado de la API y de PostgreSQL           |
+| POST   | `/api/v1/auth/registro`  | No             | Registro de clientes (RF-01)               |
+| POST   | `/api/v1/auth/login`     | No             | Inicio de sesión (clientes y ADMIN)        |
+| GET    | `/api/v1/auth/perfil`    | Bearer         | Datos de la persona autenticada (RF-01)    |
+| PATCH  | `/api/v1/auth/perfil`    | Bearer         | Editar el propio nombre y teléfono (RF-01) |
+| GET    | `/api/v1/admin/clientes` | Bearer + ADMIN | Listado paginado de clientes (RF-02)       |
 
 `GET /api/v1/health` comprueba la base de datos con `SELECT 1` (rutas → controlador → servicio →
 repositorio). Si responde, devuelve **200**:
@@ -320,6 +322,151 @@ a este límite.
 - Si en producción la API queda detrás de un proxy inverso, habrá que configurar `trust proxy` para
   que se use la IP real del cliente.
 
+## Permisos por rol (RF-02, RNF-03, RN-05)
+
+Hay dos roles: `CLIENTE` y `ADMIN`. Los permisos se comprueban **siempre en el servidor** con el rol
+del token firmado (no se puede falsificar: un token alterado da 401 `TOKEN_INVALIDO`).
+
+| Situación                                           | Respuesta                                                          |
+| --------------------------------------------------- | ------------------------------------------------------------------ |
+| Ruta protegida sin token                            | **401** `NO_AUTENTICADO` «Debes iniciar sesión para continuar.»    |
+| Cliente en una ruta de la administradora            | **403** `PROHIBIDO` «No tienes permiso para realizar esta acción.» |
+| Cliente que pide un recurso de otra persona (RN-05) | **404** `NO_ENCONTRADO` (no se revela que el recurso existe)       |
+
+### Patrón RN-05: «el cliente solo ve lo suyo»
+
+El id de la persona sale **siempre del token**, nunca de la URL, del cuerpo ni de la query.
+`src/shared/middlewares/usuario-actual.ts` ofrece dos piezas para las fases siguientes
+(solicitudes, cotizaciones, pedidos, notificaciones):
+
+```ts
+// Controlador: el id del token (401 si la ruta no pasó por auth)
+const usuarioId = idUsuarioActual(res);
+
+// Repositorio: filtrar SIEMPRE por ese id
+prisma.pedido.findMany({ where: { usuarioId } });
+
+// Detalle por id: 404 si no existe o es de otra persona (mismo mensaje en ambos casos)
+const pedido = exigirPropietario(await repositorio.buscar(id), usuarioId, 'El pedido no existe.');
+```
+
+`PATCH /auth/perfil` ya lo aplica: actualiza la persona del token y rechaza cualquier `id` en el cuerpo.
+
+## Editar el perfil (RF-01, RN-05)
+
+### `PATCH /api/v1/auth/perfil`
+
+Requiere `Authorization: Bearer <token>` (clientes y administradora). Solo cambia **tu** perfil.
+
+```json
+{ "nombre": "María Pérez Vidal", "telefono": "+593 98 765 4321" }
+```
+
+| Campo      | Reglas                                                                                       |
+| ---------- | -------------------------------------------------------------------------------------------- |
+| `nombre`   | Opcional, de 2 a 120 caracteres (se quitan los espacios de los extremos)                     |
+| `telefono` | Opcional, mismo formato que el registro. **`null` o `""` borran el teléfono**                |
+| otro campo | **No se admite** (`email`, `rol`, `password`, `id`, `activo`…): 400 con un detalle por campo |
+
+Debe llegar al menos uno de los dos campos. Respuesta **200** con la misma forma que `GET /auth/perfil`:
+
+```json
+{
+  "usuario": {
+    "id": "8d7fdcbc-0e64-49df-895b-b89c21dca0f5",
+    "nombre": "María Pérez Vidal",
+    "email": "maria@example.com",
+    "telefono": "+593987654321",
+    "rol": "CLIENTE"
+  }
+}
+```
+
+Ejemplo de **400** al intentar cambiar el rol (`{ "nombre": "María", "rol": "ADMIN" }`):
+
+```json
+{
+  "error": {
+    "codigo": "VALIDACION",
+    "mensaje": "Los datos enviados no son válidos.",
+    "detalles": [
+      {
+        "campo": "rol",
+        "ubicacion": "body",
+        "mensaje": "Este campo no se puede modificar: solo se pueden cambiar nombre y telefono"
+      }
+    ]
+  }
+}
+```
+
+| Estado | `codigo`                                               | Cuándo                                                                      |
+| ------ | ------------------------------------------------------ | --------------------------------------------------------------------------- |
+| 400    | `VALIDACION`                                           | Sin campos, nombre o teléfono inválidos, o un campo que no se puede cambiar |
+| 401    | `NO_AUTENTICADO` / `TOKEN_INVALIDO` / `TOKEN_EXPIRADO` | Sin token, token no válido o caducado, o cuenta borrada o desactivada       |
+
+El correo y la contraseña no se cambian en esta versión (sin recuperación de contraseña en la v1).
+
+## Rutas de la administradora (RF-02, RNF-03)
+
+Todas las rutas administrativas cuelgan de **`/api/v1/admin`**. El grupo, definido en
+`src/modules/admin/admin.routes.ts`, aplica `auth` + `requireRole('ADMIN')` **una sola vez** a todo
+`/admin`, antes de cualquier ruta. Por eso:
+
+- Ninguna ruta administrativa puede quedar sin proteger por olvido.
+- Incluso una ruta inexistente bajo `/admin` responde 401/403 a quien no es administradora.
+
+**Cómo añadir una sección en las fases siguientes** (categorías, materiales, precios, pedidos…):
+crea su router (sin repetir `auth` ni `requireRole`) y regístralo en `MODULOS_ADMIN`:
+
+```ts
+export const MODULOS_ADMIN: readonly ModuloAdmin[] = [
+  { prefijo: '/clientes', crearRouter: ({ prisma }) => crearClientesAdminRouter(prisma) },
+  { prefijo: '/categorias', crearRouter: ({ prisma }) => crearCategoriasAdminRouter(prisma) },
+];
+```
+
+Nunca montes rutas administrativas fuera de este grupo. La prueba `tests/admin-rutas.test.ts`
+recorre todas las rutas de `MODULOS_ADMIN` y comprueba que dan **401 sin token y 403 con un token de
+cliente**; si un módulo anida otro router, la prueba falla y pide registrarlo como módulo propio.
+
+### `GET /api/v1/admin/clientes`
+
+Listado de las cuentas con rol `CLIENTE`, de la más reciente a la más antigua.
+
+| Parámetro   | Reglas                                                                                   |
+| ----------- | ---------------------------------------------------------------------------------------- |
+| `pagina`    | Entero desde 1 (por defecto 1). Una página sin resultados devuelve `datos: []`           |
+| `porPagina` | Entero de 1 a 100 (por defecto 20)                                                       |
+| `q`         | Opcional: busca en el nombre o el correo sin distinguir mayúsculas (máx. 100 caracteres) |
+
+Ejemplo: `GET /api/v1/admin/clientes?q=maria&pagina=1&porPagina=20` → **200**:
+
+```json
+{
+  "datos": [
+    {
+      "id": "8d7fdcbc-0e64-49df-895b-b89c21dca0f5",
+      "nombre": "María Pérez Vidal",
+      "email": "maria@example.com",
+      "telefono": "+593987654321",
+      "activo": true,
+      "creadoEn": "2026-11-13T15:20:00.000Z"
+    }
+  ],
+  "paginacion": { "pagina": 1, "porPagina": 20, "total": 1, "totalPaginas": 1 }
+}
+```
+
+Nunca devuelve contraseñas ni hashes. `{ datos, paginacion }` será la forma común de los listados
+paginados de la API.
+
+| Estado | `codigo`         | Cuándo                                                            |
+| ------ | ---------------- | ----------------------------------------------------------------- |
+| 400    | `VALIDACION`     | `pagina` o `porPagina` no válidos, `q` repetido o demasiado largo |
+| 401    | `NO_AUTENTICADO` | Sin token (o token no válido o caducado)                          |
+| 403    | `PROHIBIDO`      | El token es de un cliente                                         |
+
 ## Formato de errores
 
 Todas las respuestas de error son JSON con la misma forma (RNF-02). `detalles` solo aparece si hay:
@@ -401,16 +548,25 @@ src/
 │       ├── validate.ts         # validación de body, query y params con Zod
 │       ├── auth.ts             # crearAuth(tokens): exige Authorization: Bearer <token>
 │       ├── require-role.ts     # requireRole('ADMIN' | 'CLIENTE') con el rol del token
+│       ├── usuario-actual.ts   # RN-05: idUsuarioActual(res) y exigirPropietario(recurso, id)
 │       ├── limite-intentos.ts  # límite de intentos de inicio de sesión (429)
 │       └── request-logger.ts   # registro de peticiones (desactivado en NODE_ENV=test)
 ├── generated/prisma/           # cliente generado por Prisma (no se versiona)
 └── modules/
+    ├── admin/
+    │   └── admin.routes.ts       # grupo /admin: auth + requireRole('ADMIN') UNA vez; MODULOS_ADMIN
     ├── auth/
-    │   ├── auth.routes.ts        # /auth/registro, /auth/login, /auth/perfil
+    │   ├── auth.routes.ts        # /auth/registro, /auth/login, GET y PATCH /auth/perfil
     │   ├── auth.controller.ts    # HTTP, sin lógica
     │   ├── auth.service.ts       # reglas: registro de clientes, login, perfil
     │   ├── auth.repository.ts    # Prisma: usuarios (nunca devuelve el hash al exterior)
-    │   └── auth.schemas.ts       # validación Zod de registro y login
+    │   └── auth.schemas.ts       # validación Zod de registro, login y edición del perfil
+    ├── usuarios/
+    │   ├── usuarios.routes.ts    # GET /admin/clientes (se monta solo a través de /admin)
+    │   ├── usuarios.controller.ts
+    │   ├── usuarios.service.ts   # { datos, paginacion }; nunca el hash
+    │   ├── usuarios.repository.ts # Prisma: clientes con búsqueda (comodines escapados)
+    │   └── usuarios.schemas.ts   # query: pagina, porPagina (máx. 100) y q
     └── health/
         ├── health.routes.ts      # rutas: conecta las capas
         ├── health.controller.ts  # HTTP: lee req y responde res, sin lógica
@@ -426,7 +582,8 @@ lógica de negocio, el servicio no conoce Express y solo el repositorio usa Pris
 recibe el cliente inyectado, de modo que las pruebas eligen la base de datos; también admite un
 `reloj` (para simular la expiración de los tokens) y un `limitadorLogin` (para probar el 429 con un límite bajo). Al recibir SIGINT o SIGTERM,
 `server.ts` deja de aceptar peticiones y cierra las conexiones con PostgreSQL antes de salir.
-Cada módulo nuevo se registra en `src/routes.ts`.
+Cada módulo nuevo se registra en `src/routes.ts`; las rutas de la administradora, en `MODULOS_ADMIN`
+(ver «Rutas de la administradora»).
 
 ## Pruebas (RNF-07; DERCAS §6)
 
