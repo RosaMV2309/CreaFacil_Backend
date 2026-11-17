@@ -10,16 +10,23 @@ export default defineConfig({
   test: {
     environment: 'node',
     /**
-     * Cobertura (`npm run test:coverage`, RNF-07). Solo cuenta el código de `src/`:
+     * Cobertura (`npm run test:coverage`, RNF-07). Cuenta el código de `src/` y de `scripts/`:
      * - Se excluye `src/generated/` (cliente de Prisma generado) y `src/server.ts`
      *   (arranque con listen y señales del sistema; se comprueba con newman en la CI).
+     * - De `scripts/` cuenta la lógica de la limpieza de datos de prueba; su punto de entrada
+     *   (`limpiar-datos-prueba.ts`, solo conecta argv, .env y consola) se ejecuta en la CI.
      * - Umbrales mínimos globales: si alguno no se alcanza, el comando falla (y la CI también).
      *   Líneas, sentencias y funciones 80 %; ramas 75 % (las ramas defensivas pesan más).
      */
     coverage: {
       provider: 'v8',
-      include: ['src/**/*.ts'],
-      exclude: ['src/generated/**', 'src/server.ts', 'src/**/*.test.ts'],
+      include: ['src/**/*.ts', 'scripts/**/*.ts'],
+      exclude: [
+        'src/generated/**',
+        'src/server.ts',
+        'src/**/*.test.ts',
+        'scripts/limpiar-datos-prueba.ts',
+      ],
       reporter: ['text', 'html', 'lcov', 'json-summary'],
       reportsDirectory: 'coverage',
       thresholds: {
