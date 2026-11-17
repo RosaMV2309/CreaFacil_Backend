@@ -148,7 +148,9 @@
                 "type": "text/javascript",
                 "exec": [
                   "// Correo único en cada ejecución para que el registro no choque con uno anterior.",
-                  "pm.collectionVariables.set('emailCliente', `cliente+${Date.now()}@creafacil.test`);",
+                  "// Dominio RESERVADO para los datos de prueba de newman: `npm run db:limpiar-pruebas` borra",
+                  "// los clientes de este dominio (npm run test:postman lo hace al terminar).",
+                  "pm.collectionVariables.set('emailCliente', `cliente+${Date.now()}@newman.creafacil.test`);",
                   "pm.collectionVariables.set('passwordCliente', 'Clave-Postman-2026');"
                 ]
               }
@@ -222,7 +224,7 @@
               "host": ["{{baseUrl}}"],
               "path": ["auth", "registro"]
             },
-            "description": "POST /api/v1/auth/registro — crea una cuenta de CLIENTE y devuelve 201 con `{ token, tipo, expiraEn, usuario }`. El pre-request script genera un correo único (`cliente+<marca de tiempo>@creafacil.test`)."
+            "description": "POST /api/v1/auth/registro — crea una cuenta de CLIENTE y devuelve 201 con `{ token, tipo, expiraEn, usuario }`. El pre-request script genera un correo único en el dominio reservado para los datos de prueba (`cliente+<marca de tiempo>@newman.creafacil.test`); `npm run db:limpiar-pruebas` borra esos clientes y `npm run test:postman` lo ejecuta al terminar."
           },
           "response": []
         },
