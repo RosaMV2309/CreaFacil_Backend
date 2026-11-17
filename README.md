@@ -148,24 +148,25 @@ Las pruebas de integración leen `DATABASE_URL_TEST` de `.env.test` (ignorado po
 
 ## Comandos
 
-| Comando                    | Qué hace                                           |
-| -------------------------- | -------------------------------------------------- |
-| `npm run dev`              | Servidor en modo desarrollo con recarga automática |
-| `npm run build`            | Compila TypeScript en `dist/`                      |
-| `npm start`                | Ejecuta la versión compilada                       |
-| `npm run lint`             | Revisa el código con ESLint                        |
-| `npm run format`           | Formatea el código con Prettier                    |
-| `npm run typecheck`        | Comprueba los tipos sin compilar                   |
-| `npm test`                 | Ejecuta todas las pruebas (Vitest + Supertest)     |
-| `npm run test:unit`        | Solo las pruebas unitarias (sin base de datos)     |
-| `npm run test:integracion` | Solo las de integración (contra `creafacil_test`)  |
-| `npm run test:coverage`    | Todas las pruebas con informe de cobertura         |
-| `npm run test:postman`     | Colección de Postman con newman (servidor en 3000) |
-| `npm run prisma:generate`  | Genera el cliente de Prisma                        |
-| `npm run db:migrate`       | Crea/aplica migraciones en desarrollo              |
-| `npm run db:deploy`        | Aplica las migraciones pendientes (CI/producción)  |
-| `npm run db:seed`          | Carga los datos base (idempotente)                 |
-| `npm run db:studio`        | Abre Prisma Studio para ver los datos              |
+| Comando                      | Qué hace                                               |
+| ---------------------------- | ------------------------------------------------------ |
+| `npm run dev`                | Servidor en modo desarrollo con recarga automática     |
+| `npm run build`              | Compila TypeScript en `dist/`                          |
+| `npm start`                  | Ejecuta la versión compilada                           |
+| `npm run lint`               | Revisa el código con ESLint                            |
+| `npm run format`             | Formatea el código con Prettier                        |
+| `npm run typecheck`          | Comprueba los tipos sin compilar                       |
+| `npm test`                   | Ejecuta todas las pruebas (Vitest + Supertest)         |
+| `npm run test:unit`          | Solo las pruebas unitarias (sin base de datos)         |
+| `npm run test:integracion`   | Solo las de integración (contra `creafacil_test`)      |
+| `npm run test:coverage`      | Todas las pruebas con informe de cobertura             |
+| `npm run test:postman`       | Colección de Postman con newman (servidor en 3000)     |
+| `npm run prisma:generate`    | Genera el cliente de Prisma                            |
+| `npm run db:migrate`         | Crea/aplica migraciones en desarrollo                  |
+| `npm run db:deploy`          | Aplica las migraciones pendientes (CI/producción)      |
+| `npm run db:seed`            | Carga los datos base (idempotente)                     |
+| `npm run db:limpiar-pruebas` | Borra los clientes de prueba de newman (ver «Pruebas») |
+| `npm run db:studio`          | Abre Prisma Studio para ver los datos                  |
 
 ## Endpoints
 
@@ -604,14 +605,47 @@ Cada módulo nuevo se registra en `src/routes.ts`; las rutas de la administrador
   un límite bajo. Sus usuarios usan el dominio `auth.creafacil.test` y se borran al terminar.
 - **Integración**: necesitan `.env.test` con `DATABASE_URL_TEST` (copia `.env.test.example`). Por seguridad,
   el nombre de la base de datos **debe terminar en `_test`**; el `globalSetup` aplica las migraciones antes.
-- **Cobertura** (`@vitest/coverage-v8`): mide solo `src/`, sin `src/generated/` (cliente de Prisma) ni
-  `src/server.ts` (arranque; se comprueba con newman en la CI). Umbrales mínimos: **80 %** de líneas,
+- **Cobertura** (`@vitest/coverage-v8`): mide `src/` y `scripts/`, sin `src/generated/` (cliente de Prisma),
+  `src/server.ts` (arranque; se comprueba con newman en la CI) ni `scripts/limpiar-datos-prueba.ts` (punto de
+  entrada de la limpieza; se ejecuta en la CI). Umbrales mínimos: **80 %** de líneas,
   sentencias y funciones y **75 %** de ramas; si no se alcanzan, el comando (y la CI) falla.
   El informe HTML queda en `coverage/index.html`.
 - **Postman**: con el servidor en marcha (`npm run dev`), `npm run test:postman` ejecuta la colección con
   newman (descargado con `npx` en la versión fijada 6.2.3; no es dependencia del proyecto). El script
   `scripts/postman.js` lee `ADMIN_EMAIL` y `ADMIN_PASSWORD` del `.env` para el inicio de sesión de la
   administradora sin mostrarlos. Cómo importarla en la app de Postman: [`postman/README.md`](postman/README.md).
+
+### Limpieza de los datos de prueba de newman
+
+Cada ejecución de la colección registra un cliente con un correo del dominio **reservado**
+`@newman.creafacil.test` (solo lo usa newman). Para que no se acumulen:
+
+- `npm run test:postman` ejecuta `npm run db:limpiar-pruebas` **al terminar**, pase o falle newman, y
+  conserva el código de salida de newman (si la limpieza falla, solo avisa).
+- A mano, contra la BD del `.env`:
+
+  ```sh
+  npm run db:limpiar-pruebas -- --simular            # muestra qué borraría, sin borrar nada
+  npm run db:limpiar-pruebas                         # borra los clientes *@newman.creafacil.test
+  npm run db:limpiar-pruebas -- --incluir-antiguos   # y también los antiguos cliente+<marca>@creafacil.test
+  npm run db:limpiar-pruebas -- --ayuda
+  ```
+
+Protecciones (`scripts/limpieza-datos-prueba.ts`, con pruebas en Vitest):
+
+- Solo borra cuentas con rol **CLIENTE** cuyo correo sea del dominio de newman (o, con `--incluir-antiguos`,
+  `cliente+<marca>@creafacil.test`). Una cuenta **ADMIN nunca se borra**, aunque su correo coincida.
+- Doble filtro: la consulta filtra por dominio y rol, y cada correo se vuelve a comprobar con una expresión
+  regular estricta antes de borrarlo por id (`x@sub.newman.creafacil.test` u `otro+1@creafacil.test` no cuentan).
+- Se **niega** a ejecutarse con `NODE_ENV=production` (sin forma de saltárselo) y rechaza argumentos desconocidos.
+- Borra en una **transacción** sus cotizaciones, solicitudes, pedidos y el historial de esos pedidos
+  (las notificaciones y los dispositivos FCM caen en cascada). Si algún dato ajeno referencia a un cliente de
+  prueba, la transacción falla y **no se borra nada**.
+- Muestra la base de datos (sin credenciales) y cuántos usuarios y filas borra.
+
+No hay ningún endpoint HTTP para borrar usuarios: no es un requisito del DERCAS y sería una superficie de
+ataque innecesaria. La limpieza es una herramienta de desarrollo que vive en `scripts/` (fuera de `src/` y de
+`dist/`) y solo se ejecuta desde la terminal con acceso a la base de datos.
 
 ## Integración continua (GitHub Actions)
 
@@ -625,6 +659,9 @@ y en cada pull request, en `ubuntu-latest` con **Node.js 24 LTS** y un servicio 
 4. `test:coverage` (sube el informe `cobertura` como artefacto).
 5. Arranca el servidor compilado (`npm start`), espera a `/health`, ejecuta `db:seed` y la colección de
    Postman con newman (informe JUnit como artefacto `newman`). Si algo falla, sube `servidor.log`.
+6. Ejecuta `db:limpiar-pruebas` (primero con `--simular`) aunque newman falle, y comprueba con `psql` que no
+   queda ningún cliente `@newman.creafacil.test` y que la administradora sigue. La BD de la CI es efímera, pero
+   así se ejecuta de verdad el comando y se verifica que solo borra datos de prueba.
 
 Las variables de la CI son **de prueba** (no hay secretos reales). La CI fija `LOGIN_MAX_INTENTOS=1000`
 para que newman no se bloquee y pasa a newman las credenciales de prueba de la administradora con
