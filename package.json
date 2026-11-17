@@ -29,6 +29,7 @@
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
     "db:seed": "prisma db seed",
+    "db:limpiar-pruebas": "tsx scripts/limpiar-datos-prueba.ts",
     "db:studio": "prisma studio"
   },
   "repository": {
