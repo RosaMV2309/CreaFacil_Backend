@@ -83,6 +83,36 @@ describe('middleware validate', () => {
   });
 });
 
+describe('objetos estrictos: un detalle por campo no permitido', () => {
+  const estrictos = {
+    body: z.strictObject({ nombre: z.string(), datos: z.strictObject({ a: z.number() }) }),
+  };
+  const rutas = Router();
+  rutas.post('/estricto', validate(estrictos), (_req, res) => {
+    res.json(datosValidados(res, estrictos).body);
+  });
+  const appEstricta = crearAppDePrueba(rutas);
+
+  it('desglosa los campos sobrantes, también los anidados, con su ruta', async () => {
+    const res = await request(appEstricta)
+      .post('/estricto')
+      .send({ nombre: 'x', rol: 'ADMIN', id: 1, datos: { a: 1, b: 2 } });
+    expect(res.status).toBe(400);
+    const cuerpo = res.body as {
+      error: { detalles: { campo: string; ubicacion: string; mensaje: string }[] };
+    };
+    expect(cuerpo.error.detalles.map((d) => d.campo).sort()).toEqual(['datos.b', 'id', 'rol']);
+    expect(cuerpo.error.detalles.every((d) => d.ubicacion === 'body')).toBe(true);
+  });
+
+  it('deja pasar el objeto sin campos sobrantes', async () => {
+    const res = await request(appEstricta)
+      .post('/estricto')
+      .send({ nombre: 'x', datos: { a: 1 } });
+    expect(res.status).toBe(200);
+  });
+});
+
 describe('datosValidados sin validate()', () => {
   it('lanza un error de programación (500 ERROR_INTERNO) si la ruta no pasó por validate', async () => {
     const consola = vi.spyOn(console, 'error').mockImplementation(() => undefined);

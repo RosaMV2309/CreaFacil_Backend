@@ -38,13 +38,15 @@ const telefono = z.preprocess(
     .optional(),
 );
 
+const nombre = z
+  .string({ error: 'El nombre es obligatorio' })
+  .trim()
+  .min(2, 'El nombre debe tener al menos 2 caracteres')
+  .max(120, 'El nombre no puede superar 120 caracteres');
+
 export const esquemasRegistro = {
   body: z.object({
-    nombre: z
-      .string({ error: 'El nombre es obligatorio' })
-      .trim()
-      .min(2, 'El nombre debe tener al menos 2 caracteres')
-      .max(120, 'El nombre no puede superar 120 caracteres'),
+    nombre,
     email,
     password: z
       .string({ error: 'La contraseña es obligatoria' })
@@ -83,3 +85,37 @@ export const esquemasLogin = {
 };
 
 export type DatosLogin = z.output<typeof esquemasLogin.body>;
+
+/** Campos del propio perfil que se pueden editar (RF-01). */
+export const CAMPOS_PERFIL_EDITABLES = ['nombre', 'telefono'] as const;
+
+/**
+ * Edición del propio perfil (`PATCH /auth/perfil`, RF-01, RN-05).
+ *
+ * - Solo `nombre` (2 a 120) y `telefono` (mismo formato que el registro). Al menos uno es obligatorio.
+ * - `telefono: null` o `""` BORRA el teléfono (se guarda `null`); si no se envía, no cambia.
+ * - Esquema ESTRICTO: cualquier otro campo (`email`, `rol`, `password`, `id`, `activo`…) responde
+ *   400 con un detalle por campo, en lugar de ignorarlo en silencio. Así nadie cree que cambió su
+ *   correo o su rol, y nunca se puede actualizar a otra persona enviando un `id` (RN-05).
+ * - Un cuerpo ausente se trata como `{}` para responder el mismo 400 «al menos un campo».
+ */
+export const esquemasActualizarPerfil = {
+  body: z.preprocess(
+    (valor) => valor ?? {},
+    z
+      .strictObject(
+        { nombre: nombre.optional(), telefono },
+        {
+          error: (issue) =>
+            issue.code === 'unrecognized_keys'
+              ? `Este campo no se puede modificar: solo se pueden cambiar ${CAMPOS_PERFIL_EDITABLES.join(' y ')}`
+              : undefined,
+        },
+      )
+      .refine((datos) => datos.nombre !== undefined || datos.telefono !== undefined, {
+        error: `Envía al menos un campo para actualizar: ${CAMPOS_PERFIL_EDITABLES.join(' o ')}`,
+      }),
+  ),
+};
+
+export type DatosActualizarPerfil = z.output<typeof esquemasActualizarPerfil.body>;

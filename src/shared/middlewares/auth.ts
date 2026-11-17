@@ -13,7 +13,9 @@ import type { ServicioTokens } from '../security/tokens.js';
  * - Token válido → guarda `UsuarioAutenticado` (id UUID y rol) en `res.locals` y continúa.
  *
  * El token nunca se registra en los logs (RNF-01). Los permisos por rol se comprueban después
- * con `requireRole` (RN-05): `router.get('/admin/...', auth, requireRole('ADMIN'), ...)`.
+ * con `requireRole` (RN-05); para las rutas de la administradora lo hace una sola vez el grupo
+ * `/api/v1/admin` (`src/modules/admin/admin.routes.ts`). Para filtrar por la persona del token,
+ * usa `idUsuarioActual(res)` de `usuario-actual.ts`.
  */
 
 export type Rol = 'ADMIN' | 'CLIENTE';

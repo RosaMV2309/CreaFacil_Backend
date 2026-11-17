@@ -2,7 +2,7 @@ import { AppError } from '../../shared/errors/index.js';
 import { generarHashPassword, verificarPassword } from '../../shared/security/password.js';
 import type { ServicioTokens } from '../../shared/security/tokens.js';
 import type { AuthRepository, UsuarioPublico } from './auth.repository.js';
-import type { DatosLogin, DatosRegistro } from './auth.schemas.js';
+import type { DatosActualizarPerfil, DatosLogin, DatosRegistro } from './auth.schemas.js';
 
 /**
  * Reglas de negocio de la autenticación (RF-01, RNF-01). No conoce Express ni Prisma.
@@ -33,6 +33,7 @@ export interface AuthService {
   registrar(datos: DatosRegistro): Promise<Sesion>;
   iniciarSesion(datos: DatosLogin): Promise<Sesion>;
   obtenerPerfil(usuarioId: string): Promise<UsuarioPublico>;
+  actualizarPerfil(usuarioId: string, cambios: DatosActualizarPerfil): Promise<UsuarioPublico>;
 }
 
 export function sesionNoValida(): AppError {
@@ -143,6 +144,23 @@ export function crearAuthService({
     obtenerPerfil: async (usuarioId) => {
       const usuario = await repositorio.buscarPorId(usuarioId);
       if (!usuario?.activo) {
+        throw sesionNoValida();
+      }
+      return aUsuarioPublico(usuario);
+    },
+
+    /**
+     * Edición del propio perfil (RF-01). `usuarioId` SIEMPRE es el del token (RN-05): la ruta no
+     * acepta ids en la URL ni en el cuerpo, así que nadie puede modificar a otra persona.
+     * Solo cambia `nombre` y `telefono` (`null` borra el teléfono). El correo, el rol, la contraseña
+     * y el estado no se pueden cambiar aquí. Cuenta inexistente o desactivada → 401, igual que GET.
+     */
+    actualizarPerfil: async (usuarioId, { nombre, telefono }) => {
+      const usuario = await repositorio.actualizarPerfil(usuarioId, {
+        ...(nombre !== undefined ? { nombre } : {}),
+        ...(telefono !== undefined ? { telefono } : {}),
+      });
+      if (!usuario) {
         throw sesionNoValida();
       }
       return aUsuarioPublico(usuario);

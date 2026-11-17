@@ -3,6 +3,7 @@ import { Router } from 'express';
 import type { DependenciasApp } from './app.js';
 import { NOMBRE_API, VERSION_API } from './config/app-info.js';
 import type { Env } from './config/env.js';
+import { crearAdminRouter } from './modules/admin/admin.routes.js';
 import { crearAuthRouter } from './modules/auth/auth.routes.js';
 import { crearHealthRouter } from './modules/health/health.routes.js';
 import { crearLimitadorLogin } from './shared/middlewares/limite-intentos.js';
@@ -39,6 +40,9 @@ export function crearRouterApi(env: Env, dependencias: DependenciasApp): Router 
         }),
     }),
   );
+  // Rutas de la administradora: el grupo aplica auth + requireRole('ADMIN') a TODO /admin
+  // (RF-02, RNF-03). Las secciones nuevas se registran en MODULOS_ADMIN, nunca aquí.
+  router.use('/admin', crearAdminRouter({ prisma: dependencias.prisma, tokens }));
 
   return router;
 }
