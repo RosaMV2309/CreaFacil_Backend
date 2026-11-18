@@ -41,7 +41,8 @@ Cada petición comprueba el código HTTP y la forma del cuerpo. A nivel de colec
 `{ "error": { "codigo", "mensaje" } }` sin pilas de error. En total: **20 peticiones y 110 aserciones**.
 
 Variables de colección que rellenan los scripts: `emailCliente` (generado en cada ejecución como
-`cliente+<marca de tiempo>@creafacil.test`), `passwordCliente`, `tokenCliente`, `tokenAdmin` y `qCliente`
+`cliente+<marca de tiempo>@newman.creafacil.test`, el dominio reservado para los datos de prueba; ver
+«Limpieza de los datos de prueba»), `passwordCliente`, `tokenCliente`, `tokenAdmin` y `qCliente`
 (el correo del cliente codificado para la URL: el `+` en una query significa espacio).
 
 La carpeta **Permisos** reutiliza `tokenCliente` y `tokenAdmin` de **Autenticación**: si la ejecutas sola,
@@ -91,7 +92,34 @@ npm run test:postman   # en otra: colección + entorno local (+ credenciales del
 ```
 
 El comando termina con código 0 si todas las aserciones pasan y con código 1 si alguna falla.
-En la CI se usa `npm run test:postman:ci` (entorno CI e informe JUnit en `newman/`).
+Al final verás la limpieza de los datos de prueba (ver la sección siguiente).
+En la CI se usa `npm run test:postman:ci` (entorno CI e informe JUnit en `newman/`) y después un paso
+con `npm run db:limpiar-pruebas`.
+
+## Limpieza de los datos de prueba
+
+Cada ejecución registra **un cliente** con un correo del dominio reservado `@newman.creafacil.test`.
+Para que no se acumulen en tu base de datos de desarrollo:
+
+- `npm run test:postman` ejecuta `npm run db:limpiar-pruebas` **al terminar**, tanto si newman pasa como si
+  falla, sin cambiar su código de salida. Al final verás algo así:
+
+  ```text
+  Limpiando los datos de prueba de newman (npm run db:limpiar-pruebas)…
+  Limpieza de datos de prueba · base de datos: creafacil en localhost:5432
+  Clientes de prueba encontrados: 1 (newman: 1, antiguos: 0)
+    - cliente+1763400000000@newman.creafacil.test
+  Borrados: 1 usuarios, 0 cotizaciones, 0 solicitudes, 0 pedidos y 0 cambios de estado.
+  ```
+
+- Si ejecutas la colección desde la **app de Postman**, los clientes se quedan: bórralos a mano con
+  `npm run db:limpiar-pruebas` (añade `-- --simular` para ver antes qué borraría).
+- Las versiones anteriores de la colección usaban `cliente+<marca>@creafacil.test`. Para borrarlos:
+  `npm run db:limpiar-pruebas -- --incluir-antiguos`.
+
+El comando solo borra cuentas **CLIENTE** de esos dominios (nunca una ADMIN ni tus otros usuarios), no se
+ejecuta con `NODE_ENV=production` y no existe ningún endpoint HTTP para hacerlo. Detalles en el
+[README principal](../README.md#limpieza-de-los-datos-de-prueba-de-newman).
 
 ## Límite de intentos y ejecuciones repetidas
 

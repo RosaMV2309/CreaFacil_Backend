@@ -141,10 +141,34 @@ jobs:
 
       # Los entornos versionados no llevan la contraseña: se pasa aquí con --env-var.
       - name: Pruebas de la colección de Postman (newman)
+        id: newman
         run: >-
           npm run test:postman:ci --
           --env-var "adminEmail=${ADMIN_EMAIL}"
           --env-var "adminPassword=${ADMIN_PASSWORD}"
+
+      # La BD de la CI es efímera, pero se limpia igual que en local (npm run test:postman):
+      # así se ejecuta de verdad el comando (su punto de entrada no cuenta en la cobertura) y se
+      # comprueba que solo borra los clientes de prueba de newman. Se ejecuta aunque newman falle.
+      - name: Limpiar los datos de prueba de newman (db:limpiar-pruebas)
+        if: ${{ !cancelled() && steps.newman.outcome != 'skipped' }}
+        run: |
+          npm run db:limpiar-pruebas -- --simular
+          npm run db:limpiar-pruebas
+
+      - name: Comprobar que no quedan clientes de newman y que la administradora sigue
+        if: ${{ !cancelled() && steps.newman.outcome != 'skipped' }}
+        env:
+          PGPASSWORD: postgres
+        run: |
+          consulta() { psql -h localhost -U postgres -d creafacil -tAc "$1"; }
+          newman=$(consulta "SELECT count(*) FROM usuarios WHERE email LIKE '%@newman.creafacil.test' AND rol = 'CLIENTE'")
+          admins=$(consulta "SELECT count(*) FROM usuarios WHERE rol = 'ADMIN'")
+          echo "Clientes de newman restantes: ${newman}. Administradoras: ${admins}."
+          if [ "${newman}" != "0" ] || [ "${admins}" != "1" ]; then
+            echo "::error::La limpieza dejó clientes de newman o borró a la administradora."
+            exit 1
+          fi
 
       - name: Subir el informe de newman
         if: always()
