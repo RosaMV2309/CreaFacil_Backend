@@ -5,6 +5,7 @@ import { crearAuth } from '../../shared/middlewares/auth.js';
 import { requireRole } from '../../shared/middlewares/require-role.js';
 import type { ServicioTokens } from '../../shared/security/tokens.js';
 import { crearCategoriasAdminRouter } from '../categorias/categorias.routes.js';
+import { crearMaterialesAdminRouter } from '../materiales/materiales.routes.js';
 import { crearClientesAdminRouter } from '../usuarios/usuarios.routes.js';
 
 /**
@@ -40,6 +41,7 @@ export interface ModuloAdmin {
 export const MODULOS_ADMIN: readonly ModuloAdmin[] = [
   { prefijo: '/clientes', crearRouter: ({ prisma }) => crearClientesAdminRouter(prisma) },
   { prefijo: '/categorias', crearRouter: ({ prisma }) => crearCategoriasAdminRouter(prisma) },
+  { prefijo: '/materiales', crearRouter: ({ prisma }) => crearMaterialesAdminRouter(prisma) },
 ];
 
 export function crearAdminRouter(
