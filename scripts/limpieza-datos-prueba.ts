@@ -6,8 +6,8 @@
  * `--incluir-antiguos`, los `cliente+<marca>@creafacil.test` que dejaron las versiones anteriores
  * de la colección), junto con sus datos relacionados.
  *
- * También borra las categorías y los materiales cuyo nombre empieza por el prefijo reservado
- * `[newman] ` (los crea la carpeta «Catálogo · Administración»). Es la ÚNICA excepción a la regla
+ * También borra los servicios (con sus fotos: registro Y archivo), las categorías y los materiales
+ * cuyo nombre empieza por el prefijo reservado `[newman] ` (los crean las carpetas «Catálogo · …»). Es la ÚNICA excepción a la regla
  * «el catálogo solo se desactiva, nunca se borra», porque son datos de prueba. Si algo que no es de
  * prueba depende de ellos (un servicio, una cotización…), no se borra NADA y se explica el motivo.
  *
@@ -22,6 +22,7 @@
  * - `--simular` muestra lo que se borraría sin borrar nada.
  * - Todo se borra en una transacción: o se borra todo o nada.
  */
+import type { AlmacenamientoArchivos } from '../src/shared/almacenamiento/almacenamiento.js';
 import type { PrismaClient } from '../src/shared/database/prisma.js';
 
 /** Dominio reservado para los datos de prueba de newman (lo usa la colección de Postman). */
@@ -64,6 +65,11 @@ export interface RecuentoBorrado {
   solicitudes: number;
   pedidos: number;
   historialPedidos: number;
+  servicios: number;
+  /** Registros de fotos de los servicios de prueba. */
+  fotos: number;
+  /** Archivos de esas fotos borrados del almacenamiento. */
+  archivos: number;
   categorias: number;
   materiales: number;
 }
@@ -71,10 +77,13 @@ export interface RecuentoBorrado {
 export interface ResultadoLimpieza {
   simulado: boolean;
   usuarios: UsuarioDePrueba[];
+  servicios: ElementoCatalogoDePrueba[];
   categorias: ElementoCatalogoDePrueba[];
   materiales: ElementoCatalogoDePrueba[];
   /** Filas borradas (todo a 0 en una simulación). */
   borrados: RecuentoBorrado;
+  /** Archivos que no se pudieron borrar (el registro ya no existe; se pueden borrar a mano). */
+  avisos: string[];
 }
 
 /** Error esperado de la limpieza: se muestra a la persona sin la pila. */
@@ -140,6 +149,9 @@ const SIN_BORRADOS: RecuentoBorrado = {
   solicitudes: 0,
   pedidos: 0,
   historialPedidos: 0,
+  servicios: 0,
+  fotos: 0,
+  archivos: 0,
   categorias: 0,
   materiales: 0,
 };
@@ -176,23 +188,32 @@ async function buscarUsuariosDePrueba(
   return usuarios;
 }
 
-/** Categorías y materiales de prueba (doble filtro: prefijo en la consulta + expresión regular). */
-async function buscarCatalogoDePrueba(
-  prisma: PrismaClient,
-): Promise<{ categorias: ElementoCatalogoDePrueba[]; materiales: ElementoCatalogoDePrueba[] }> {
+interface CatalogoDePrueba {
+  servicios: ElementoCatalogoDePrueba[];
+  categorias: ElementoCatalogoDePrueba[];
+  materiales: ElementoCatalogoDePrueba[];
+}
+
+/** Servicios, categorías y materiales de prueba (doble filtro: prefijo en la consulta + regex). */
+async function buscarCatalogoDePrueba(prisma: PrismaClient): Promise<CatalogoDePrueba> {
   const consulta = {
     where: { nombre: { startsWith: PREFIJO_CATALOGO_NEWMAN } },
     select: { id: true, nombre: true },
   };
-  const [categorias, materiales] = await Promise.all([
+  const [servicios, categorias, materiales] = await Promise.all([
+    prisma.servicio.findMany(consulta),
     prisma.categoria.findMany(consulta),
     prisma.material.findMany(consulta),
   ]);
   const filtrar = (elementos: ElementoCatalogoDePrueba[]) =>
     elementos
       .filter((elemento) => esNombreDePrueba(elemento.nombre))
-      .sort((a, b) => porCodigo(a.nombre, b.nombre));
-  return { categorias: filtrar(categorias), materiales: filtrar(materiales) };
+      .sort((a, b) => porCodigo(a.nombre, b.nombre) || porCodigo(a.id, b.id));
+  return {
+    servicios: filtrar(servicios),
+    categorias: filtrar(categorias),
+    materiales: filtrar(materiales),
+  };
 }
 
 /**
@@ -205,9 +226,12 @@ async function buscarCatalogoDePrueba(
 async function borrarDatosPrueba(
   prisma: PrismaClient,
   ids: string[],
-  idsCategorias: string[],
-  idsMateriales: string[],
-): Promise<RecuentoBorrado> {
+  {
+    idsServicios,
+    idsCategorias,
+    idsMateriales,
+  }: { idsServicios: string[]; idsCategorias: string[]; idsMateriales: string[] },
+): Promise<{ borrados: Omit<RecuentoBorrado, 'archivos'>; claves: string[] }> {
   return prisma.$transaction(async (tx) => {
     const historialPedidos = await tx.historialEstadoPedido.deleteMany({
       where: { pedido: { clienteId: { in: ids } } },
@@ -217,8 +241,29 @@ async function borrarDatosPrueba(
     const cotizaciones = await tx.cotizacion.deleteMany({ where: { clienteId: { in: ids } } });
     const usuarios = await tx.usuario.deleteMany({ where: { id: { in: ids }, rol: 'CLIENTE' } });
 
-    // Catálogo de prueba: DESPUÉS de los clientes, porque los detalles de sus cotizaciones (ya
-    // borrados en cascada) eran lo único que podía referenciar a un material de prueba.
+    // Catálogo de prueba: DESPUÉS de los clientes, porque sus cotizaciones y solicitudes (ya
+    // borradas) eran lo único que podía referenciar a un servicio o un material de prueba.
+    const usosServicios =
+      (await tx.cotizacion.count({ where: { servicioId: { in: idsServicios } } })) +
+      (await tx.solicitud.count({ where: { servicioId: { in: idsServicios } } }));
+    if (usosServicios > 0) {
+      throw new ErrorLimpieza(
+        `Los servicios de prueba se usan en ${usosServicios} cotización(es) o solicitud(es) que no ` +
+          'son de prueba. No se ha borrado nada.',
+      );
+    }
+    // Las claves de los archivos se leen ANTES de borrar los registros; los archivos se borran
+    // después de confirmar la transacción (si se revierte, las fotos siguen completas).
+    const fotosServicios = await tx.imagenServicio.findMany({
+      where: { servicioId: { in: idsServicios } },
+      select: { clave: true },
+    });
+    const fotos = await tx.imagenServicio.deleteMany({
+      where: { servicioId: { in: idsServicios } },
+    });
+    // Sus materiales habituales caen en cascada.
+    const serviciosBorrados = await tx.servicio.deleteMany({ where: { id: { in: idsServicios } } });
+
     const servicios = await tx.servicio.count({ where: { categoriaId: { in: idsCategorias } } });
     if (servicios > 0) {
       throw new ErrorLimpieza(
@@ -238,48 +283,81 @@ async function borrarDatosPrueba(
     const categorias = await tx.categoria.deleteMany({ where: { id: { in: idsCategorias } } });
     const materiales = await tx.material.deleteMany({ where: { id: { in: idsMateriales } } });
     return {
-      usuarios: usuarios.count,
-      cotizaciones: cotizaciones.count,
-      solicitudes: solicitudes.count,
-      pedidos: pedidos.count,
-      historialPedidos: historialPedidos.count,
-      categorias: categorias.count,
-      materiales: materiales.count,
+      borrados: {
+        usuarios: usuarios.count,
+        cotizaciones: cotizaciones.count,
+        solicitudes: solicitudes.count,
+        pedidos: pedidos.count,
+        historialPedidos: historialPedidos.count,
+        servicios: serviciosBorrados.count,
+        fotos: fotos.count,
+        categorias: categorias.count,
+        materiales: materiales.count,
+      },
+      claves: fotosServicios.flatMap((foto) => (foto.clave === null ? [] : [foto.clave])),
     };
   });
 }
 
-/** Limpia los datos de prueba. Comprueba el entorno ANTES de tocar la base de datos. */
+/** Lo único que la limpieza necesita del almacenamiento de archivos. */
+export type BorradorArchivos = Pick<AlmacenamientoArchivos, 'eliminar'>;
+
+/**
+ * Limpia los datos de prueba. Comprueba el entorno ANTES de tocar la base de datos.
+ * Con `almacenamiento`, borra también los archivos de las fotos de los servicios de prueba.
+ */
 export async function limpiarDatosPrueba(
   prisma: PrismaClient,
   opciones: OpcionesLimpieza,
   nodeEnv: string | undefined,
+  almacenamiento?: BorradorArchivos,
 ): Promise<ResultadoLimpieza> {
   comprobarEntornoPermitido(nodeEnv);
   const usuarios = await buscarUsuariosDePrueba(prisma, opciones.incluirAntiguos);
-  const { categorias, materiales } = await buscarCatalogoDePrueba(prisma);
-  const encontrados = { usuarios, categorias, materiales };
-  const nada = usuarios.length + categorias.length + materiales.length === 0;
+  const { servicios, categorias, materiales } = await buscarCatalogoDePrueba(prisma);
+  const encontrados = { usuarios, servicios, categorias, materiales };
+  const nada = usuarios.length + servicios.length + categorias.length + materiales.length === 0;
   if (opciones.simular || nada) {
-    return { simulado: opciones.simular, ...encontrados, borrados: { ...SIN_BORRADOS } };
+    return {
+      simulado: opciones.simular,
+      ...encontrados,
+      borrados: { ...SIN_BORRADOS },
+      avisos: [],
+    };
   }
-  const borrados = await borrarDatosPrueba(
+  const { borrados, claves } = await borrarDatosPrueba(
     prisma,
     usuarios.map((usuario) => usuario.id),
-    categorias.map((categoria) => categoria.id),
-    materiales.map((material) => material.id),
+    {
+      idsServicios: servicios.map((servicio) => servicio.id),
+      idsCategorias: categorias.map((categoria) => categoria.id),
+      idsMateriales: materiales.map((material) => material.id),
+    },
   );
-  return { simulado: false, ...encontrados, borrados };
+  let archivos = 0;
+  const avisos: string[] = [];
+  for (const clave of almacenamiento ? claves : []) {
+    try {
+      await (almacenamiento as BorradorArchivos).eliminar(clave);
+      archivos += 1;
+    } catch (error) {
+      const motivo = error instanceof Error ? error.message : String(error);
+      avisos.push(`No se pudo borrar el archivo ${clave}: ${motivo}`);
+    }
+  }
+  return { simulado: false, ...encontrados, borrados: { ...borrados, archivos }, avisos };
 }
 
 /** Texto del resumen para la consola. */
 export function describirResultado(resultado: ResultadoLimpieza): string[] {
-  const { usuarios, categorias, materiales, borrados } = resultado;
+  const { usuarios, servicios, categorias, materiales, borrados } = resultado;
   const newman = usuarios.filter((usuario) => usuario.origen === 'newman').length;
   const antiguos = usuarios.length - newman;
   const lineas = [
     `Clientes de prueba encontrados: ${usuarios.length} (newman: ${newman}, antiguos: ${antiguos})`,
     ...usuarios.map((usuario) => `  - ${usuario.email}`),
+    `Servicios de prueba encontrados: ${servicios.length}`,
+    ...servicios.map((servicio) => `  - ${servicio.nombre}`),
     `Categorías de prueba encontradas: ${categorias.length}`,
     ...categorias.map((categoria) => `  - ${categoria.nombre}`),
     `Materiales de prueba encontrados: ${materiales.length}`,
@@ -287,15 +365,18 @@ export function describirResultado(resultado: ResultadoLimpieza): string[] {
   ];
   if (resultado.simulado) {
     lineas.push(
-      `SIMULACIÓN: se borrarían ${usuarios.length} usuarios, ${categorias.length} categorías y ` +
-        `${materiales.length} materiales. No se ha borrado nada.`,
+      `SIMULACIÓN: se borrarían ${usuarios.length} usuarios, ${servicios.length} servicios ` +
+        `(con sus fotos), ${categorias.length} categorías y ${materiales.length} materiales. ` +
+        'No se ha borrado nada.',
     );
   } else {
     lineas.push(
+      ...resultado.avisos.map((aviso) => `Aviso: ${aviso}`),
       `Borrados: ${borrados.usuarios} usuarios, ${borrados.cotizaciones} cotizaciones, ` +
         `${borrados.solicitudes} solicitudes, ${borrados.pedidos} pedidos, ` +
-        `${borrados.historialPedidos} cambios de estado, ${borrados.categorias} categorías y ` +
-        `${borrados.materiales} materiales.`,
+        `${borrados.historialPedidos} cambios de estado, ${borrados.servicios} servicios, ` +
+        `${borrados.fotos} fotos (${borrados.archivos} archivos), ${borrados.categorias} ` +
+        `categorías y ${borrados.materiales} materiales.`,
     );
   }
   return lineas;
@@ -313,6 +394,8 @@ export function describirBaseDatos(url: string): string {
 
 export interface DependenciasCli {
   crearPrisma: (url: string) => PrismaClient;
+  /** Almacenamiento de las fotos (disco en UPLOADS_DIR). Sin él, no se borran archivos. */
+  crearAlmacenamiento?: (entorno: NodeJS.ProcessEnv) => BorradorArchivos;
   escribir: (linea: string) => void;
   escribirError: (linea: string) => void;
 }
@@ -341,7 +424,12 @@ export async function ejecutarCli(
     escribir(`Limpieza de datos de prueba · base de datos: ${describirBaseDatos(url)}`);
     const prisma = dependencias.crearPrisma(url);
     try {
-      const resultado = await limpiarDatosPrueba(prisma, opciones, entorno.NODE_ENV);
+      const resultado = await limpiarDatosPrueba(
+        prisma,
+        opciones,
+        entorno.NODE_ENV,
+        dependencias.crearAlmacenamiento?.(entorno),
+      );
       describirResultado(resultado).forEach((linea) => {
         escribir(linea);
       });
