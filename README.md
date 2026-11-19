@@ -136,6 +136,8 @@ Decisiones clave:
 | `CORS_ORIGIN`           | No          | Orígenes permitidos, separados por comas                                                   |
 | `LOGIN_MAX_INTENTOS`    | No          | Intentos fallidos de inicio de sesión por IP (por defecto `5`; `1000` con `NODE_ENV=test`) |
 | `LOGIN_VENTANA_MINUTOS` | No          | Ventana del límite de intentos en minutos, de 1 a 1440 (por defecto `15`)                  |
+| `UPLOADS_DIR`           | No          | Carpeta de las fotos del catálogo (por defecto `uploads`, ignorada por Git)                |
+| `PUBLIC_BASE_URL`       | No          | Origen público de la API para las URL de las fotos (por defecto `http://localhost:<PORT>`) |
 | `ADMIN_EMAIL`           | Seed        | Correo de la administradora inicial                                                        |
 | `ADMIN_PASSWORD`        | Seed        | Contraseña inicial (8 a 72 caracteres; se guarda como hash)                                |
 | `ADMIN_NOMBRE`          | No          | Nombre de la administradora (por defecto `Administradora`)                                 |
@@ -596,6 +598,92 @@ Content-Type: application/json
 | 404    | `RUTA_NO_ENCONTRADA` | `DELETE` o `PUT` (no existen: solo se desactiva)                                    |
 | 409    | `CONFLICTO`          | «Ya existe una categoría con ese nombre.» / «Ya existe un material con ese nombre.» |
 
+## Catálogo · Servicios y fotos (RF-22, RF-04, RF-05)
+
+Todo bajo `/api/v1/admin/servicios`, protegido por el grupo `/admin` (Bearer de ADMIN; 401
+`NO_AUTENTICADO` sin token y 403 `PROHIBIDO` a un cliente, ANTES de leer ningún archivo).
+**No hay DELETE de servicios** (RF-05: solo se desactivan con `PATCH { "activo": false }`); el único
+DELETE es el de una foto.
+
+| Método y ruta                                 | Cuerpo                                                            | Respuesta                              |
+| --------------------------------------------- | ----------------------------------------------------------------- | -------------------------------------- |
+| `GET /admin/servicios`                        | query `pagina`, `porPagina` (1–100), `q`, `categoriaId`, `activo` | 200 `{ datos: [resumen], paginacion }` |
+| `GET /admin/servicios/:id`                    | —                                                                 | 200 `{ servicio }` (ficha) · 404       |
+| `POST /admin/servicios`                       | ver abajo                                                         | 201 `{ servicio }` · 400 · 409         |
+| `PATCH /admin/servicios/:id`                  | cualquier subconjunto (≥ 1 campo)                                 | 200 `{ servicio }` · 400 · 404 · 409   |
+| `POST /admin/servicios/:id/fotos`             | `multipart/form-data`, campo **`foto`**                           | 201 `{ foto }` · 400 · 404 · 409 · 413 |
+| `PATCH /admin/servicios/:id/fotos/orden`      | `{ "fotoIds": [uuid, …] }` (todas)                                | 200 `{ fotos }` · 400 · 404            |
+| `DELETE /admin/servicios/:id/fotos/:fotoId`   | —                                                                 | 200 `{ fotos }` (las que quedan) · 404 |
+| `GET /uploads/<archivo>` (fuera de `/api/v1`) | — (**sin token**: el catálogo es público)                         | 200 imagen · 404                       |
+
+Cuerpo de `POST` (los mismos campos, opcionales, en `PATCH`; cuerpos estrictos):
+
+```json
+{
+  "categoriaId": "uuid de una categoría existente (puede estar desactivada)",
+  "nombre": "Mural infantil (2–120, único DENTRO de su categoría)",
+  "descripcion": "≤ 2000, opcional; null o \"\" la borran",
+  "dimensionesOrientativas": "≤ 200, opcional",
+  "observaciones": "≤ 1000, opcional",
+  "precioBaseReferencial": 120.5,
+  "materialIds": ["uuid", "uuid"],
+  "activo": true
+}
+```
+
+- **Resumen** (listado): `id`, `nombre`, `categoria { id, nombre, activa }`, `activo`,
+  `precioBaseReferencial`, `portadaUrl` (foto con orden 0 o `null`), `numeroFotos`, `creadoEn`, `actualizadoEn`.
+- **Ficha**: el resumen + `descripcion`, `dimensionesOrientativas`, `observaciones`,
+  `materiales [{ id, nombre, unidad, activo }]` (por nombre) y `fotos [{ id, url, orden }]` (por orden).
+- `precioBaseReferencial`: opcional, **mismo formato que `precioUnitario`** (texto con 2 decimales,
+  `"120.50"`; `null` lo quita). Es solo orientativo («Desde $X», RN-01).
+- `materialIds` **reemplaza** la lista de materiales habituales (`[]` la vacía). Deben existir (400 en
+  `materialIds`); los que se **añaden** deben estar activos, pero los que el servicio ya tenía se pueden
+  conservar aunque se hayan desactivado después.
+- Nombre duplicado en la misma categoría (sin distinguir mayúsculas) → 409 «Ya existe un servicio con ese
+  nombre en esta categoría.». El mismo nombre en otra categoría sí se permite. Categoría inexistente → 400
+  en `categoriaId` «La categoría no existe.».
+- Desactivar una **categoría** no desactiva sus servicios: el catálogo público (2.3) los ocultará.
+
+### Fotos: cómo se guardan
+
+- **Interfaz intercambiable** `AlmacenamientoArchivos` (`src/shared/almacenamiento/almacenamiento.ts`):
+  `guardar({ clave, contenido, tipoMime })`, `eliminar(clave)` (idempotente), `urlPublica(clave)` y,
+  opcional, `manejadorPublico` (solo si la propia API sirve los archivos). Se inyecta en
+  `crearApp(env, { prisma, almacenamiento })`; por defecto, **disco local** (`disco.ts`) en `UPLOADS_DIR`.
+- **Para pasar a Cloudinary o Firebase Storage**: crea `src/shared/almacenamiento/<proveedor>.ts` que
+  implemente la interfaz (sube con el nombre `clave` recibido, borra por clave y devuelve la URL absoluta del
+  proveedor; sin `manejadorPublico`) y pásala a `crearApp` en `src/server.ts`. Las apps no cambian.
+- **URL absolutas**: cada foto se devuelve como `url` ABSOLUTA, `${PUBLIC_BASE_URL}/uploads/<archivo>`, que
+  las apps usan tal cual en `Image.network`. Se calcula al responder a partir de la clave guardada (columna
+  `clave`), así que cambiar `PUBLIC_BASE_URL` o de proveedor no deja URL antiguas. En el emulador de Android,
+  `localhost` es el propio emulador: la app debe sustituirlo por `10.0.2.2` o arrancar la API con
+  `PUBLIC_BASE_URL=http://10.0.2.2:3000`.
+- En la BD (`imagenes_servicio`) se guarda `clave`, `tipo_mime`, `tamano_bytes` y `orden`
+  (migración `20261119120000_fotos_servicio_almacenamiento`, que además hace opcional `descripcion`).
+
+### Límites y seguridad de las fotos
+
+- **Máximo 5 MB** por foto (multer en memoria con límite → 413 `ARCHIVO_DEMASIADO_GRANDE`) y **8 fotos por
+  servicio** (409). La comprobación definitiva se hace en una transacción que bloquea la fila del servicio
+  (`SELECT … FOR UPDATE`): dos subidas simultáneas no pueden superar el máximo.
+- **Tipo por el contenido real** (firma o «magic bytes»): JPEG `FF D8 FF`, PNG `89 50 4E 47 0D 0A 1A 0A`,
+  WebP `RIFF….WEBP`. La extensión y el Content-Type del cliente se ignoran. Si no coincide → **400
+  `VALIDACION`** en el campo `foto` (se usa 400 y no 415 para que las apps lo traten como un error del
+  formulario, igual que el resto de validaciones).
+- **Nombre aleatorio** `<uuid v4>.<extensión del tipo detectado>`; el nombre original nunca se usa. Toda clave
+  se valida con una expresión estricta y la ruta se comprueba dentro de la carpeta: sin path traversal.
+- Solo se admite un archivo en el campo `foto` y ningún otro campo (400). Un formulario mal formado → 400
+  `SOLICITUD_INVALIDA`.
+- `GET /uploads/<archivo>`: sin listado de directorios (solo nombres con el formato de las claves; lo demás
+  es 404 JSON), `Content-Type` correcto, `X-Content-Type-Options: nosniff`,
+  `Cache-Control: public, max-age=86400` y `Cross-Origin-Resource-Policy: cross-origin` **solo** en esta
+  ruta (helmet pone `same-origin` en toda la API, lo que impediría a las apps Flutter web en
+  `localhost:5000/5001` mostrar las fotos). CORS ya lo da el middleware `cors` con `CORS_ORIGIN`.
+- Al borrar una foto se borra el registro y después el archivo, y las demás se renumeran 0..n-1 (la 0 es la
+  portada). Si se borra un registro pero el archivo falla, se registra un aviso y la petición termina bien.
+- `uploads/` está en `.gitignore`: ningún archivo subido entra en Git.
+
 ## Formato de errores
 
 Todas las respuestas de error son JSON con la misma forma (RNF-02). `detalles` solo aparece si hay:
@@ -749,6 +837,9 @@ Cada módulo nuevo se registra en `src/routes.ts`; las rutas de la administrador
   administradora sin mostrarlos. Cómo importarla en la app de Postman: [`postman/README.md`](postman/README.md).
 
 ### Limpieza de los datos de prueba de newman
+
+> Desde la 2.2 también borra los **servicios** `[newman] ` con sus fotos (registro **y archivo** en
+> `UPLOADS_DIR`). Si una cotización o solicitud que no es de prueba usa uno de esos servicios, no borra nada.
 
 Cada ejecución de la colección registra un cliente con un correo del dominio **reservado**
 `@newman.creafacil.test` (solo lo usa newman). Para que no se acumulen:
