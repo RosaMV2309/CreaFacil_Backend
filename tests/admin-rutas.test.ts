@@ -74,6 +74,20 @@ describe('grupo /api/v1/admin: todas las rutas exigen el rol ADMIN', () => {
   const rutas = rutasAdmin();
   const tokenCliente = tokens.firmar({ id: ID, rol: 'CLIENTE' }).token;
 
+  it('servicios: CRUD sin DELETE y fotos (subir, ordenar y borrar) bajo el grupo', () => {
+    const base = '/api/v1/admin/servicios';
+    expect(rutas.filter((r) => r.ruta.startsWith(base))).toEqual([
+      { metodo: 'get', ruta: base },
+      { metodo: 'post', ruta: base },
+      { metodo: 'get', ruta: `${base}/${ID}` },
+      { metodo: 'patch', ruta: `${base}/${ID}` },
+      { metodo: 'post', ruta: `${base}/${ID}/fotos` },
+      { metodo: 'patch', ruta: `${base}/${ID}/fotos/orden` },
+      // El único DELETE es el de una foto: los servicios solo se desactivan (RF-05).
+      { metodo: 'delete', ruta: `${base}/${ID}/fotos/${ID}` },
+    ]);
+  });
+
   it('hay rutas administrativas registradas (clientes, categorías y materiales)', () => {
     expect(rutas).toContainEqual({ metodo: 'get', ruta: '/api/v1/admin/clientes' });
     for (const seccion of ['categorias', 'materiales']) {
