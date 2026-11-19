@@ -137,7 +137,8 @@ model Servicio {
   id                      String   @id @default(uuid()) @db.Uuid
   categoriaId             String   @map("categoria_id") @db.Uuid
   nombre                  String   @db.VarChar(120)
-  descripcion             String
+  /// RF-04: la ficha «podrá incluir» descripción, así que es opcional (Fase 2 · 2.2).
+  descripcion             String?
   /// RF-04: texto libre, por ejemplo "60 x 40 cm" o "pared de hasta 3 m".
   dimensionesOrientativas String?  @map("dimensiones_orientativas") @db.VarChar(200)
   observaciones           String?
@@ -166,9 +167,18 @@ model Servicio {
 model ImagenServicio {
   id               String   @id @default(uuid()) @db.Uuid
   servicioId       String   @map("servicio_id") @db.Uuid
+  /// URL pública en el momento de subirla. Si hay `clave`, la API devuelve la URL calculada por el
+  /// almacenamiento (así un cambio de PUBLIC_BASE_URL o de proveedor no deja URLs viejas).
   url              String   @db.VarChar(500)
+  /// Clave interna del archivo en el almacenamiento (nombre aleatorio, p. ej. «<uuid>.png»).
+  /// Nula solo en imágenes externas sin archivo propio. Sirve para borrar el archivo.
+  clave            String?  @unique @db.VarChar(200)
+  /// Tipo detectado por el CONTENIDO del archivo (firma), no por la extensión: image/jpeg|png|webp.
+  tipoMime         String?  @map("tipo_mime") @db.VarChar(50)
+  tamanoBytes      Int?     @map("tamano_bytes")
   /// Texto alternativo para accesibilidad (RNF-05).
   textoAlternativo String?  @map("texto_alternativo") @db.VarChar(200)
+  /// 0 = portada. Se mantiene sin huecos (0..n-1) al borrar o reordenar.
   orden            Int      @default(0)
   createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
 
