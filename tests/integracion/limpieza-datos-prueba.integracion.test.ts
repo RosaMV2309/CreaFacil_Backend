@@ -18,6 +18,11 @@ import { crearPrismaDePrueba } from './base-datos.js';
 
 const HASH = 'x'.repeat(60);
 const NOMBRE_CATEGORIA = 'Categoría de la prueba de limpieza';
+/** Catálogo de newman (prefijo reservado) y un material ajeno que nunca se debe borrar. */
+const CATEGORIA_NEWMAN = '[newman] Categoría de la prueba de limpieza';
+const MATERIAL_NEWMAN = '[newman] Material de la prueba de limpieza';
+const MATERIAL_INTACTO = 'Material intacto de la prueba de limpieza';
+const NOMBRES_CATALOGO = [NOMBRE_CATEGORIA, CATEGORIA_NEWMAN, MATERIAL_NEWMAN, MATERIAL_INTACTO];
 
 /** Cuentas que la limpieza NUNCA debe borrar. */
 const INTACTAS = [
@@ -54,8 +59,11 @@ describe('limpieza de los datos de prueba de newman (integración)', () => {
     await prisma.solicitud.deleteMany({ where });
     await prisma.cotizacion.deleteMany({ where });
     await prisma.usuario.deleteMany({ where: { email: { in: TODOS } } });
-    await prisma.servicio.deleteMany({ where: { categoria: { nombre: NOMBRE_CATEGORIA } } });
-    await prisma.categoria.deleteMany({ where: { nombre: NOMBRE_CATEGORIA } });
+    await prisma.servicio.deleteMany({
+      where: { categoria: { nombre: { in: NOMBRES_CATALOGO } } },
+    });
+    await prisma.categoria.deleteMany({ where: { nombre: { in: NOMBRES_CATALOGO } } });
+    await prisma.material.deleteMany({ where: { nombre: { in: NOMBRES_CATALOGO } } });
     await prisma.configuracionPrecios.deleteMany({ where: { costoManoObraHora: '987.65' } });
   }
 
@@ -119,6 +127,17 @@ describe('limpieza de los datos de prueba de newman (integración)', () => {
     return pedido.id;
   }
 
+  /** Nombres de las categorías y los materiales de este archivo que siguen en la BD. */
+  async function catalogoExistente(): Promise<string[]> {
+    const where = { nombre: { in: NOMBRES_CATALOGO } };
+    const select = { nombre: true };
+    const [categorias, materiales] = await Promise.all([
+      prisma.categoria.findMany({ where, select }),
+      prisma.material.findMany({ where, select }),
+    ]);
+    return [...categorias, ...materiales].map((e) => e.nombre).sort();
+  }
+
   async function existentes(): Promise<string[]> {
     const usuarios = await prisma.usuario.findMany({
       where: { email: { in: TODOS } },
@@ -162,6 +181,27 @@ describe('limpieza de los datos de prueba de newman (integración)', () => {
     // Datos relacionados: de un cliente de newman y de un cliente que NO se debe tocar.
     await crearDatosRelacionados(id(NEWMAN[0] ?? ''), 'newman');
     await crearDatosRelacionados(id('maria@limpieza.creafacil.test'), 'maria');
+    // Catálogo: una categoría y un material de newman, y un material ajeno.
+    await prisma.categoria.create({ data: { nombre: CATEGORIA_NEWMAN } });
+    const materialNewman = await prisma.material.create({
+      data: { nombre: MATERIAL_NEWMAN, unidad: 'unidad', precioUnitario: '1.00' },
+    });
+    await prisma.material.create({
+      data: { nombre: MATERIAL_INTACTO, unidad: 'unidad', precioUnitario: '2.00' },
+    });
+    // El material de newman aparece en la cotización del cliente de newman (se borra con ella).
+    const cotizacionNewman = await prisma.cotizacion.findFirstOrThrow({
+      where: { clienteId: id(NEWMAN[0] ?? '') },
+    });
+    await prisma.detalleCotizacionMaterial.create({
+      data: {
+        cotizacionId: cotizacionNewman.id,
+        materialId: materialNewman.id,
+        cantidad: '1',
+        precioUnitario: '1.00',
+        subtotal: '1.00',
+      },
+    });
   });
 
   afterAll(async () => {
@@ -187,7 +227,13 @@ describe('limpieza de los datos de prueba de newman (integración)', () => {
       solicitudes: 1,
       pedidos: 1,
       historialPedidos: 1,
+      categorias: 1,
+      materiales: 1,
     });
+    expect(resultado.categorias.map((c) => c.nombre)).toEqual([CATEGORIA_NEWMAN]);
+    expect(resultado.materiales.map((m) => m.nombre)).toEqual([MATERIAL_NEWMAN]);
+    // El catálogo ajeno sigue (la categoría con servicio y el material intacto).
+    expect(await catalogoExistente()).toEqual([MATERIAL_INTACTO, NOMBRE_CATEGORIA].sort());
     // El antiguo sigue (no se pidió --incluir-antiguos) y las cuentas intactas también.
     expect(await existentes()).toEqual([...INTACTAS.map((u) => u.email), ANTIGUO].sort());
     await expect(
@@ -257,7 +303,10 @@ describe('limpieza de los datos de prueba de newman (integración)', () => {
     expect(resultado.simulado).toBe(true);
     expect(resultado.usuarios.map((u) => u.email)).toEqual([ANTIGUO, ...NEWMAN]);
     expect(resultado.borrados.usuarios).toBe(0);
+    expect(resultado.categorias.map((c) => c.nombre)).toEqual([CATEGORIA_NEWMAN]);
+    expect(resultado.materiales.map((m) => m.nombre)).toEqual([MATERIAL_NEWMAN]);
     expect(await existentes()).toEqual(antes);
+    expect(await catalogoExistente()).toEqual([...NOMBRES_CATALOGO].sort());
     await expect(prisma.pedido.count()).resolves.toBe(pedidosAntes);
   });
 
@@ -292,6 +341,53 @@ describe('limpieza de los datos de prueba de newman (integración)', () => {
     ).resolves.toBe(2);
   });
 
+  it('si un servicio ajeno está en una categoría de prueba, no borra nada y lo explica', async () => {
+    const categoria = await prisma.categoria.findUniqueOrThrow({
+      where: { nombre: CATEGORIA_NEWMAN },
+    });
+    await prisma.servicio.create({
+      data: { categoriaId: categoria.id, nombre: 'Servicio ajeno', descripcion: 'No es de prueba' },
+    });
+    const antes = await existentes();
+
+    await expect(
+      limpiarDatosPrueba(prisma, { simular: false, incluirAntiguos: false }, 'development'),
+    ).rejects.toThrow(/tienen 1 servicio\(s\) que dependen de ellas\. No se ha borrado nada/);
+
+    expect(await existentes()).toEqual(antes);
+    expect(await catalogoExistente()).toEqual([...NOMBRES_CATALOGO].sort());
+  });
+
+  it('si un material de prueba se usa en una cotización ajena, no borra nada', async () => {
+    const material = await prisma.material.findUniqueOrThrow({
+      where: { nombre: MATERIAL_NEWMAN },
+    });
+    const cotizacionMaria = await prisma.cotizacion.findFirstOrThrow({
+      where: { clienteId: id('maria@limpieza.creafacil.test') },
+    });
+    await prisma.detalleCotizacionMaterial.create({
+      data: {
+        cotizacionId: cotizacionMaria.id,
+        materialId: material.id,
+        cantidad: '2',
+        precioUnitario: '1.00',
+        subtotal: '2.00',
+      },
+    });
+    const antes = await existentes();
+
+    await expect(
+      limpiarDatosPrueba(prisma, { simular: false, incluirAntiguos: false }, 'development'),
+    ).rejects.toThrow(ErrorLimpieza);
+
+    expect(await existentes()).toEqual(antes);
+    expect(await catalogoExistente()).toEqual([...NOMBRES_CATALOGO].sort());
+    // Ni siquiera se borró la cotización del cliente de newman (todo se revierte).
+    await expect(
+      prisma.cotizacion.count({ where: { clienteId: id(NEWMAN[0] ?? '') } }),
+    ).resolves.toBe(1);
+  });
+
   it('el comando completo (ejecutarCli) borra y muestra el recuento', async () => {
     const salida: string[] = [];
     const errores: string[] = [];
@@ -312,7 +408,8 @@ describe('limpieza de los datos de prueba de newman (integración)', () => {
     expect(salida[0]).toMatch(/^Limpieza de datos de prueba · base de datos: creafacil_test en /);
     expect(salida).toContain('Clientes de prueba encontrados: 3 (newman: 2, antiguos: 1)');
     expect(salida.at(-1)).toBe(
-      'Borrados: 3 usuarios, 1 cotizaciones, 1 solicitudes, 1 pedidos y 1 cambios de estado.',
+      'Borrados: 3 usuarios, 1 cotizaciones, 1 solicitudes, 1 pedidos, 1 cambios de estado, ' +
+        '1 categorías y 1 materiales.',
     );
     expect(await existentes()).toEqual(INTACTAS.map((u) => u.email).sort());
   });

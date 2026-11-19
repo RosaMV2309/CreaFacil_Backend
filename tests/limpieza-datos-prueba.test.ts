@@ -12,7 +12,9 @@ import {
   describirResultado,
   ejecutarCli,
   ErrorLimpieza,
+  esNombreDePrueba,
   leerOpciones,
+  PREFIJO_CATALOGO_NEWMAN,
   limpiarDatosPrueba,
   origenDatoPrueba,
   type DependenciasCli,
@@ -112,23 +114,68 @@ describe('origenDatoPrueba', () => {
   });
 });
 
+describe('esNombreDePrueba (categorías y materiales de newman)', () => {
+  it.each(['[newman] Categoría 1763390000000', '[newman] Material x'])(
+    'reconoce «%s»',
+    (nombre) => {
+      expect(esNombreDePrueba(nombre)).toBe(true);
+      expect(nombre.startsWith(PREFIJO_CATALOGO_NEWMAN)).toBe(true);
+    },
+  );
+
+  it.each([
+    'Murales',
+    'Fomix',
+    '[NEWMAN] Categoría',
+    '[newman]Categoría',
+    '[newman]  ',
+    '[newman] ',
+    ' [newman] Categoría',
+    'Categoría [newman] 1',
+    '(newman) Categoría',
+  ])('no confunde «%s» con un dato de prueba', (nombre) => {
+    expect(esNombreDePrueba(nombre)).toBe(false);
+  });
+});
+
 describe('describirResultado y describirBaseDatos', () => {
   const usuarios = [
     { id: '1', email: 'a@newman.creafacil.test', origen: 'newman' as const },
     { id: '2', email: 'cliente+1@creafacil.test', origen: 'antiguo' as const },
   ];
 
+  const categorias = [{ id: 'c', nombre: '[newman] Categoría 1' }];
+  const materiales = [
+    { id: 'm1', nombre: '[newman] Material 1' },
+    { id: 'm2', nombre: '[newman] Material 2' },
+  ];
+
   it('en una simulación avisa de que no se ha borrado nada', () => {
     const lineas = describirResultado({
       simulado: true,
       usuarios,
-      borrados: { usuarios: 0, cotizaciones: 0, solicitudes: 0, pedidos: 0, historialPedidos: 0 },
+      categorias,
+      materiales,
+      borrados: {
+        usuarios: 0,
+        cotizaciones: 0,
+        solicitudes: 0,
+        pedidos: 0,
+        historialPedidos: 0,
+        categorias: 0,
+        materiales: 0,
+      },
     });
     expect(lineas).toEqual([
       'Clientes de prueba encontrados: 2 (newman: 1, antiguos: 1)',
       '  - a@newman.creafacil.test',
       '  - cliente+1@creafacil.test',
-      'SIMULACIÓN: se borrarían 2 usuarios. No se ha borrado nada.',
+      'Categorías de prueba encontradas: 1',
+      '  - [newman] Categoría 1',
+      'Materiales de prueba encontrados: 2',
+      '  - [newman] Material 1',
+      '  - [newman] Material 2',
+      'SIMULACIÓN: se borrarían 2 usuarios, 1 categorías y 2 materiales. No se ha borrado nada.',
     ]);
   });
 
@@ -136,10 +183,21 @@ describe('describirResultado y describirBaseDatos', () => {
     const lineas = describirResultado({
       simulado: false,
       usuarios,
-      borrados: { usuarios: 2, cotizaciones: 3, solicitudes: 4, pedidos: 5, historialPedidos: 6 },
+      categorias,
+      materiales,
+      borrados: {
+        usuarios: 2,
+        cotizaciones: 3,
+        solicitudes: 4,
+        pedidos: 5,
+        historialPedidos: 6,
+        categorias: 1,
+        materiales: 2,
+      },
     });
     expect(lineas.at(-1)).toBe(
-      'Borrados: 2 usuarios, 3 cotizaciones, 4 solicitudes, 5 pedidos y 6 cambios de estado.',
+      'Borrados: 2 usuarios, 3 cotizaciones, 4 solicitudes, 5 pedidos, 6 cambios de estado, ' +
+        '1 categorías y 2 materiales.',
     );
   });
 
