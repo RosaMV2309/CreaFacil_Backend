@@ -170,15 +170,23 @@ Las pruebas de integración leen `DATABASE_URL_TEST` de `.env.test` (ignorado po
 
 ## Endpoints
 
-| Método | Ruta                     | Autenticación  | Descripción                                |
-| ------ | ------------------------ | -------------- | ------------------------------------------ |
-| GET    | `/api/v1`                | No             | Nombre y versión de la API                 |
-| GET    | `/api/v1/health`         | No             | Estado de la API y de PostgreSQL           |
-| POST   | `/api/v1/auth/registro`  | No             | Registro de clientes (RF-01)               |
-| POST   | `/api/v1/auth/login`     | No             | Inicio de sesión (clientes y ADMIN)        |
-| GET    | `/api/v1/auth/perfil`    | Bearer         | Datos de la persona autenticada (RF-01)    |
-| PATCH  | `/api/v1/auth/perfil`    | Bearer         | Editar el propio nombre y teléfono (RF-01) |
-| GET    | `/api/v1/admin/clientes` | Bearer + ADMIN | Listado paginado de clientes (RF-02)       |
+| Método | Ruta                           | Autenticación  | Descripción                                  |
+| ------ | ------------------------------ | -------------- | -------------------------------------------- |
+| GET    | `/api/v1`                      | No             | Nombre y versión de la API                   |
+| GET    | `/api/v1/health`               | No             | Estado de la API y de PostgreSQL             |
+| POST   | `/api/v1/auth/registro`        | No             | Registro de clientes (RF-01)                 |
+| POST   | `/api/v1/auth/login`           | No             | Inicio de sesión (clientes y ADMIN)          |
+| GET    | `/api/v1/auth/perfil`          | Bearer         | Datos de la persona autenticada (RF-01)      |
+| PATCH  | `/api/v1/auth/perfil`          | Bearer         | Editar el propio nombre y teléfono (RF-01)   |
+| GET    | `/api/v1/admin/clientes`       | Bearer + ADMIN | Listado paginado de clientes (RF-02)         |
+| GET    | `/api/v1/admin/categorias`     | Bearer + ADMIN | Categorías con recuento de servicios (RF-22) |
+| POST   | `/api/v1/admin/categorias`     | Bearer + ADMIN | Crear una categoría (RF-22)                  |
+| GET    | `/api/v1/admin/categorias/:id` | Bearer + ADMIN | Una categoría (RF-22)                        |
+| PATCH  | `/api/v1/admin/categorias/:id` | Bearer + ADMIN | Editar, activar o desactivar (RF-22, RF-05)  |
+| GET    | `/api/v1/admin/materiales`     | Bearer + ADMIN | Materiales paginados (RF-22, RF-08)          |
+| POST   | `/api/v1/admin/materiales`     | Bearer + ADMIN | Crear un material con su precio (RF-08)      |
+| GET    | `/api/v1/admin/materiales/:id` | Bearer + ADMIN | Un material (RF-22)                          |
+| PATCH  | `/api/v1/admin/materiales/:id` | Bearer + ADMIN | Editar precio, unidad, activar o desactivar  |
 
 `GET /api/v1/health` comprueba la base de datos con `SELECT 1` (rutas → controlador → servicio →
 repositorio). Si responde, devuelve **200**:
@@ -468,6 +476,126 @@ paginados de la API.
 | 401    | `NO_AUTENTICADO` | Sin token (o token no válido o caducado)                          |
 | 403    | `PROHIBIDO`      | El token es de un cliente                                         |
 
+## Catálogo · Administración (RF-22, RF-08, RF-05, RF-03)
+
+Gestión de **categorías** y **materiales** por la administradora (Fase 2 · 2.1). Todas las rutas van en el
+grupo `/api/v1/admin` (registradas en `MODULOS_ADMIN`): exigen `Authorization: Bearer <token de la ADMIN>`;
+sin token → 401 `NO_AUTENTICADO`; con token de cliente → 403 `PROHIBIDO`. Capas: rutas → controlador →
+servicio → repositorio (`src/modules/categorias` y `src/modules/materiales`).
+
+Decisiones:
+
+- **Solo se desactiva, nunca se borra.** No hay `DELETE` (ni `PUT`): un `DELETE /admin/categorias/:id` o
+  `/admin/materiales/:id` responde **404 `RUTA_NO_ENCONTRADA`**, como cualquier ruta inexistente. Así se
+  conserva el historial de cotizaciones y pedidos. Se desactiva con `PATCH { "activa": false }` (categoría) o
+  `PATCH { "activo": false }` (material).
+- Una categoría desactivada **no desactiva sus servicios**: el catálogo público (subfase 2.3) los ocultará.
+  Para que el panel pueda avisar, cada categoría trae `serviciosActivos` y `serviciosTotales`.
+- **Nombre único** sin distinguir mayúsculas y tras recortar y reducir los espacios
+  (`"  [x]  Murales "` → `"[x] Murales"`). Duplicado → **409 `CONFLICTO`** con un detalle en `nombre`.
+- Cuerpos **estrictos**: un campo desconocido (`id`, `creadoEn`, `stock`…) → 400 con un detalle por campo.
+  En `PATCH` se envía cualquier subconjunto de campos, pero al menos uno.
+- Id que no es UUID → **400** (detalle `{ campo: "id", ubicacion: "params" }`); id inexistente → **404
+  `NO_ENCONTRADO`** («La categoría no existe.» / «El material no existe.»).
+- Fechas en ISO 8601 (UTC): `creadoEn`, `actualizadoEn`. Nunca se devuelven campos internos.
+
+### Categorías: `/api/v1/admin/categorias`
+
+| Método | Ruta   | Cuerpo / query                                                                                                       | Respuesta              |
+| ------ | ------ | -------------------------------------------------------------------------------------------------------------------- | ---------------------- |
+| GET    | `/`    | `?activa=true\|false` y `?q=` (busca en el nombre) opcionales; sin paginación                                        | 200 `{ datos: [...] }` |
+| GET    | `/:id` | —                                                                                                                    | 200 `{ categoria }`    |
+| POST   | `/`    | `{ nombre (2–80), descripcion? (≤ 500, null o "" = sin descripción), orden? (0–9999, def. 0), activa? (def. true) }` | 201 `{ categoria }`    |
+| PATCH  | `/:id` | Cualquier subconjunto de los campos de POST (al menos uno)                                                           | 200 `{ categoria }`    |
+
+El listado se ordena por `orden` y después por `nombre`.
+
+```http
+POST /api/v1/admin/categorias
+Authorization: Bearer <token de la ADMIN>
+Content-Type: application/json
+
+{ "nombre": "Cuadros decorativos", "descripcion": "Cuadros pintados a mano", "orden": 4 }
+```
+
+```json
+{
+  "categoria": {
+    "id": "4bd892cb-f2a6-4c9b-84e6-3c3188a89208",
+    "nombre": "Cuadros decorativos",
+    "descripcion": "Cuadros pintados a mano",
+    "activa": true,
+    "orden": 4,
+    "serviciosActivos": 0,
+    "serviciosTotales": 0,
+    "creadoEn": "2026-11-19T03:31:37.126Z",
+    "actualizadoEn": "2026-11-19T03:31:37.126Z"
+  }
+}
+```
+
+### Materiales: `/api/v1/admin/materiales`
+
+| Método | Ruta   | Cuerpo / query                                                                                | Respuesta                   |
+| ------ | ------ | --------------------------------------------------------------------------------------------- | --------------------------- |
+| GET    | `/`    | `?pagina` (def. 1), `?porPagina` (1–100, def. 20), `?q=` (nombre), `?activo=true\|false`      | 200 `{ datos, paginacion }` |
+| GET    | `/:id` | —                                                                                             | 200 `{ material }`          |
+| POST   | `/`    | `{ nombre (2–80), unidad (1–30), precioUnitario, descripcion? (≤ 500), activo? (def. true) }` | 201 `{ material }`          |
+| PATCH  | `/:id` | Cualquier subconjunto de los campos de POST (al menos uno)                                    | 200 `{ material }`          |
+
+El listado se ordena por nombre. `unidad` es la unidad de medida o de compra: «plancha», «litro»,
+«unidad», «m²»…
+
+```http
+POST /api/v1/admin/materiales
+Authorization: Bearer <token de la ADMIN>
+Content-Type: application/json
+
+{ "nombre": "Fomix escarchado", "unidad": "plancha", "precioUnitario": 1.25 }
+```
+
+```json
+{
+  "material": {
+    "id": "36210a4b-0b4b-4da6-938a-dbc7c878d031",
+    "nombre": "Fomix escarchado",
+    "descripcion": null,
+    "unidad": "plancha",
+    "precioUnitario": "1.25",
+    "activo": true,
+    "creadoEn": "2026-11-19T03:31:37.160Z",
+    "actualizadoEn": "2026-11-19T03:31:37.160Z"
+  }
+}
+```
+
+### Formato del precio (`precioUnitario`) — importante para las apps
+
+- **Se devuelve SIEMPRE como texto con 2 decimales**: `"0.75"`, `"12.50"`. Las apps deben tratarlo como
+  importe exacto (en Dart, guardarlo como `String` o en céntimos; no hacer cuentas con `double`).
+- **Se acepta** como número JSON (`0.75`) o como texto (`"0.75"`): mayor que 0, como máximo **2
+  decimales**, con **punto** decimal y hasta **99999.99**. Se normaliza: `2.5` → `"2.50"`, `"7"` → `"7.00"`.
+- **Nunca se redondea en silencio**: `1.234`, `"0,75"`, `0`, `-1`, `100000` o `0.1 + 0.2` calculado en
+  JavaScript (que vale `0.30000000000000004`) → 400 `VALIDACION` en `precioUnitario`.
+- Por qué: en la BD es `Decimal(12, 2)` (RF-07 exige cotizaciones exactas y reproducibles). Un número JSON
+  se lee como `double` en JavaScript y en Dart; como texto no se pierde precisión. El servidor valida y
+  normaliza el precio **como texto** y Prisma lo guarda en `Decimal` sin pasar por `float`.
+- **RF-08 / RN-02:** cambiar el precio de un material solo afecta a las cotizaciones **nuevas**. Las
+  cotizaciones ya guardadas tienen su propia copia del precio (`DetalleCotizacionMaterial.precioUnitario`) y
+  los pedidos su `precioAcordado`; editar un material no los toca (hay una prueba de integración que lo
+  comprueba).
+
+### Errores del catálogo
+
+| Estado | `codigo`             | Cuándo                                                                              |
+| ------ | -------------------- | ----------------------------------------------------------------------------------- |
+| 400    | `VALIDACION`         | Campos inválidos o desconocidos, PATCH vacío, id no UUID, query no válida           |
+| 401    | `NO_AUTENTICADO`     | Sin token (o token no válido o caducado)                                            |
+| 403    | `PROHIBIDO`          | El token es de un cliente                                                           |
+| 404    | `NO_ENCONTRADO`      | «La categoría no existe.» / «El material no existe.»                                |
+| 404    | `RUTA_NO_ENCONTRADA` | `DELETE` o `PUT` (no existen: solo se desactiva)                                    |
+| 409    | `CONFLICTO`          | «Ya existe una categoría con ese nombre.» / «Ya existe un material con ese nombre.» |
+
 ## Formato de errores
 
 Todas las respuestas de error son JSON con la misma forma (RNF-02). `detalles` solo aparece si hay:
@@ -603,6 +731,11 @@ Cada módulo nuevo se registra en `src/routes.ts`; las rutas de la administrador
 - **Integración de `auth`** (`tests/integracion/auth.integracion.test.ts`): registro, duplicado, validaciones,
   login de cliente y de ADMIN, 401 idénticos, cuenta desactivada, perfil, token alterado y expirado, y 429 con
   un límite bajo. Sus usuarios usan el dominio `auth.creafacil.test` y se borran al terminar.
+- **Catálogo** (`tests/catalogo-admin.test.ts` y `tests/integracion/catalogo-admin.integracion.test.ts`): CRUD
+  de categorías y materiales, 400/404/409, activar y desactivar, recuento de servicios, formato y precisión del
+  precio, RN-02 (la copia del precio en una cotización no cambia), 401/403 y ausencia de DELETE. Sus datos usan
+  el prefijo `[catalogo-test] ` y el dominio `catalogo.creafacil.test`. La regresión `tests/admin-rutas.test.ts`
+  recorre también las rutas nuevas.
 - **Integración**: necesitan `.env.test` con `DATABASE_URL_TEST` (copia `.env.test.example`). Por seguridad,
   el nombre de la base de datos **debe terminar en `_test`**; el `globalSetup` aplica las migraciones antes.
 - **Cobertura** (`@vitest/coverage-v8`): mide `src/` y `scripts/`, sin `src/generated/` (cliente de Prisma),
@@ -626,7 +759,7 @@ Cada ejecución de la colección registra un cliente con un correo del dominio *
 
   ```sh
   npm run db:limpiar-pruebas -- --simular            # muestra qué borraría, sin borrar nada
-  npm run db:limpiar-pruebas                         # borra los clientes *@newman.creafacil.test
+  npm run db:limpiar-pruebas                         # borra los clientes *@newman.creafacil.test y el catálogo «[newman] …»
   npm run db:limpiar-pruebas -- --incluir-antiguos   # y también los antiguos cliente+<marca>@creafacil.test
   npm run db:limpiar-pruebas -- --ayuda
   ```
@@ -642,6 +775,12 @@ Protecciones (`scripts/limpieza-datos-prueba.ts`, con pruebas en Vitest):
   (las notificaciones y los dispositivos FCM caen en cascada). Si algún dato ajeno referencia a un cliente de
   prueba, la transacción falla y **no se borra nada**.
 - Muestra la base de datos (sin credenciales) y cuántos usuarios y filas borra.
+- **Catálogo de prueba:** borra también las categorías y los materiales cuyo nombre empieza por el prefijo
+  reservado **`[newman] `** (los crea la carpeta «Catálogo · Administración»). Es la única excepción a «el
+  catálogo solo se desactiva», porque son datos de prueba. Doble filtro (prefijo en la consulta + expresión
+  regular estricta: `[NEWMAN] x` o `[newman]x` no cuentan), en la misma transacción y **después** de los clientes
+  de prueba. Si una categoría de prueba tiene servicios o un material de prueba se usa en un servicio o una
+  cotización que no es de prueba, **no se borra nada** y se explica el motivo.
 
 No hay ningún endpoint HTTP para borrar usuarios: no es un requisito del DERCAS y sería una superficie de
 ataque innecesaria. La limpieza es una herramienta de desarrollo que vive en `scripts/` (fuera de `src/` y de

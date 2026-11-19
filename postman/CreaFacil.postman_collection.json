@@ -1022,6 +1022,836 @@
       ]
     },
     {
+      "name": "Catálogo · Administración",
+      "description": "Gestión de categorías y materiales por la administradora (RF-22, RF-08; Fase 2 · 2.1). Usa `{{tokenAdmin}}` y `{{tokenCliente}}` de la carpeta Autenticación. Los nombres empiezan por el prefijo reservado «[newman] » para que `npm run db:limpiar-pruebas` los borre al final de `npm run test:postman`.",
+      "item": [
+        {
+          "name": "Crear una categoría (201)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Marca única por ejecución. El prefijo «[newman] » identifica los datos de prueba:",
+                  "// `npm run db:limpiar-pruebas` (al final de `npm run test:postman`) los borra.",
+                  "const marca = Date.now().toString();",
+                  "pm.collectionVariables.set('marcaCatalogo', marca);",
+                  "pm.collectionVariables.set('nombreCategoria', '[newman] Categoría ' + marca);",
+                  "pm.collectionVariables.set('nombreMaterial', '[newman] Material ' + marca);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 201', function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "const categoria = pm.response.json().categoria;",
+                  "pm.collectionVariables.set('idCategoria', categoria.id);",
+                  "",
+                  "pm.test('devuelve { categoria } con los campos públicos y los valores enviados', function () {",
+                  "    pm.expect(Object.keys(categoria).sort()).to.eql(['activa', 'actualizadoEn', 'creadoEn', 'descripcion', 'id', 'nombre', 'orden', 'serviciosActivos', 'serviciosTotales']);",
+                  "    pm.expect(categoria.nombre).to.eql(pm.collectionVariables.get('nombreCategoria'));",
+                  "    pm.expect(categoria.orden).to.eql(7);",
+                  "    pm.expect(categoria.activa).to.eql(true);",
+                  "    pm.expect(categoria.serviciosActivos).to.eql(0);",
+                  "    pm.expect(categoria.serviciosTotales).to.eql(0);",
+                  "    pm.expect(new Date(categoria.creadoEn).toISOString()).to.eql(categoria.creadoEn);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenAdmin}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nombre\": \"{{nombreCategoria}}\",\n  \"descripcion\": \"Categoría creada por la colección de Postman\",\n  \"orden\": 7\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/admin/categorias",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "categorias"]
+            },
+            "description": "POST /api/v1/admin/categorias (RF-22) con `Bearer {{tokenAdmin}}`. Cuerpo: `{ nombre (2–80), descripcion? (≤ 500), orden? (0–9999), activa? (por defecto true) }` → 201 `{ categoria }`. Guarda `idCategoria`."
+          },
+          "response": []
+        },
+        {
+          "name": "Crear una categoría duplicada (409)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// El mismo nombre en mayúsculas y con espacios: también es un duplicado.",
+                  "pm.collectionVariables.set('nombreCategoriaDuplicado', '  ' + pm.collectionVariables.get('nombreCategoria').toUpperCase() + '  ');"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 409', function () {",
+                  "    pm.response.to.have.status(409);",
+                  "});",
+                  "",
+                  "pm.test('error CONFLICTO con mensaje en español', function () {",
+                  "    const cuerpo = pm.response.json();",
+                  "    pm.expect(cuerpo.error.codigo).to.eql('CONFLICTO');",
+                  "    pm.expect(cuerpo.error.mensaje).to.eql('Ya existe una categoría con ese nombre.');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenAdmin}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nombre\": \"{{nombreCategoriaDuplicado}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/admin/categorias",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "categorias"]
+            },
+            "description": "El nombre es único sin distinguir mayúsculas y tras recortar los espacios → 409 CONFLICTO «Ya existe una categoría con ese nombre.»."
+          },
+          "response": []
+        },
+        {
+          "name": "Listar categorías (200)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const cuerpo = pm.response.json();",
+                  "",
+                  "pm.test('devuelve { datos } con la categoría de esta ejecución y sus servicios', function () {",
+                  "    pm.expect(Object.keys(cuerpo)).to.eql(['datos']);",
+                  "    pm.expect(cuerpo.datos).to.have.lengthOf(1);",
+                  "    const categoria = cuerpo.datos[0];",
+                  "    pm.expect(Object.keys(categoria).sort()).to.eql(['activa', 'actualizadoEn', 'creadoEn', 'descripcion', 'id', 'nombre', 'orden', 'serviciosActivos', 'serviciosTotales']);",
+                  "    pm.expect(categoria.id).to.eql(pm.collectionVariables.get('idCategoria'));",
+                  "    pm.expect(categoria.serviciosActivos).to.be.a('number').and.eql(0);",
+                  "    pm.expect(categoria.serviciosTotales).to.be.a('number').and.eql(0);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenAdmin}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/categorias?q={{marcaCatalogo}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "categorias"],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "{{marcaCatalogo}}",
+                  "description": "Busca en el nombre (opcional)"
+                },
+                {
+                  "key": "activa",
+                  "value": "true",
+                  "description": "true | false (opcional)",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "GET /api/v1/admin/categorias?activa=true|false&q=texto → 200 `{ datos: [categoria] }` ordenado por `orden` y nombre. Cada categoría incluye `serviciosActivos` y `serviciosTotales`."
+          },
+          "response": []
+        },
+        {
+          "name": "Editar una categoría (200)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const categoria = pm.response.json().categoria;",
+                  "pm.test('cambia solo los campos enviados', function () {",
+                  "    pm.expect(categoria.id).to.eql(pm.collectionVariables.get('idCategoria'));",
+                  "    pm.expect(categoria.nombre).to.eql(pm.collectionVariables.get('nombreCategoria'));",
+                  "    pm.expect(categoria.descripcion).to.eql('Descripción editada desde Postman');",
+                  "    pm.expect(categoria.orden).to.eql(3);",
+                  "    pm.expect(categoria.activa).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenAdmin}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"descripcion\": \"Descripción editada desde Postman\",\n  \"orden\": 3\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/admin/categorias/{{idCategoria}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "categorias", "{{idCategoria}}"]
+            },
+            "description": "PATCH /api/v1/admin/categorias/:id con cualquier subconjunto de `nombre`, `descripcion`, `orden`, `activa` (al menos uno) → 200 `{ categoria }`."
+          },
+          "response": []
+        },
+        {
+          "name": "Desactivar una categoría (200)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const categoria = pm.response.json().categoria;",
+                  "pm.test('queda desactivada sin borrarse (activa = false)', function () {",
+                  "    pm.expect(categoria.activa).to.eql(false);",
+                  "    pm.expect(categoria.id).to.eql(pm.collectionVariables.get('idCategoria'));",
+                  "    pm.expect(categoria.orden).to.eql(3);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenAdmin}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"activa\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/admin/categorias/{{idCategoria}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "categorias", "{{idCategoria}}"]
+            },
+            "description": "Solo se desactiva, nunca se borra (no hay DELETE). Una categoría inactiva ocultará sus servicios del catálogo público sin desactivarlos."
+          },
+          "response": []
+        },
+        {
+          "name": "Borrar una categoría no existe (404)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 404', function () {",
+                  "    pm.response.to.have.status(404);",
+                  "});",
+                  "",
+                  "pm.test('error RUTA_NO_ENCONTRADA', function () {",
+                  "    const cuerpo = pm.response.json();",
+                  "    pm.expect(cuerpo.error.codigo).to.eql('RUTA_NO_ENCONTRADA');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenAdmin}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/categorias/{{idCategoria}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "categorias", "{{idCategoria}}"]
+            },
+            "description": "No hay DELETE de categorías ni de materiales (se conserva el historial): responde 404 RUTA_NO_ENCONTRADA."
+          },
+          "response": []
+        },
+        {
+          "name": "Categorías sin token (401)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 401', function () {",
+                  "    pm.response.to.have.status(401);",
+                  "});",
+                  "",
+                  "pm.test('error NO_AUTENTICADO', function () {",
+                  "    const cuerpo = pm.response.json();",
+                  "    pm.expect(cuerpo.error.codigo).to.eql('NO_AUTENTICADO');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/categorias",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "categorias"]
+            },
+            "description": "Sin `Authorization` → 401 NO_AUTENTICADO (lo aplica el grupo /admin)."
+          },
+          "response": []
+        },
+        {
+          "name": "Crear un material con precio (201)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 201', function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "const material = pm.response.json().material;",
+                  "pm.collectionVariables.set('idMaterial', material.id);",
+                  "",
+                  "pm.test('devuelve { material } con el precio como texto «x.xx»', function () {",
+                  "    pm.expect(Object.keys(material).sort()).to.eql(['activo', 'actualizadoEn', 'creadoEn', 'descripcion', 'id', 'nombre', 'precioUnitario', 'unidad']);",
+                  "    pm.expect(material.nombre).to.eql(pm.collectionVariables.get('nombreMaterial'));",
+                  "    pm.expect(material.unidad).to.eql('plancha');",
+                  "    pm.expect(material.precioUnitario).to.be.a('string').and.eql('2.50');",
+                  "    pm.expect(material.precioUnitario).to.match(/^\\d+\\.\\d{2}$/);",
+                  "    pm.expect(material.activo).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenAdmin}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nombre\": \"{{nombreMaterial}}\",\n  \"unidad\": \"plancha\",\n  \"precioUnitario\": 2.5\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/admin/materiales",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "materiales"]
+            },
+            "description": "POST /api/v1/admin/materiales (RF-22, RF-08). `precioUnitario` admite número (2.5) o texto (\"2.50\"), > 0, hasta 2 decimales y máximo 99999.99; se devuelve SIEMPRE como texto con 2 decimales. Guarda `idMaterial`."
+          },
+          "response": []
+        },
+        {
+          "name": "Crear un material duplicado (409)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 409', function () {",
+                  "    pm.response.to.have.status(409);",
+                  "});",
+                  "",
+                  "pm.test('error CONFLICTO con mensaje en español', function () {",
+                  "    const cuerpo = pm.response.json();",
+                  "    pm.expect(cuerpo.error.codigo).to.eql('CONFLICTO');",
+                  "    pm.expect(cuerpo.error.mensaje).to.eql('Ya existe un material con ese nombre.');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenAdmin}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nombre\": \"{{nombreMaterial}}\",\n  \"unidad\": \"unidad\",\n  \"precioUnitario\": \"1.00\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/admin/materiales",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "materiales"]
+            },
+            "description": "Nombre de material repetido (sin distinguir mayúsculas) → 409 CONFLICTO."
+          },
+          "response": []
+        },
+        {
+          "name": "Crear un material con precio inválido (400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 400', function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "",
+                  "pm.test('error VALIDACION', function () {",
+                  "    const cuerpo = pm.response.json();",
+                  "    pm.expect(cuerpo.error.codigo).to.eql('VALIDACION');",
+                  "});",
+                  "pm.test('señala el campo precioUnitario', function () {",
+                  "    const detalles = pm.response.json().error.detalles;",
+                  "    const detalle = detalles.find(function (d) { return d.campo === 'precioUnitario'; });",
+                  "    pm.expect(detalle.ubicacion).to.eql('body');",
+                  "    pm.expect(detalle.mensaje).to.include('hasta 2 decimales');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenAdmin}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nombre\": \"{{nombreMaterial}} inválido\",\n  \"unidad\": \"litro\",\n  \"precioUnitario\": 1.234\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/admin/materiales",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "materiales"]
+            },
+            "description": "Más de 2 decimales (1.234), 0, negativos, coma decimal (\"0,75\") o más de 99999.99 → 400 VALIDACION en `precioUnitario`. Nunca se redondea en silencio."
+          },
+          "response": []
+        },
+        {
+          "name": "Editar el precio de un material (200)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const material = pm.response.json().material;",
+                  "pm.test('el precio nuevo se devuelve normalizado (0.3 → «0.30»)', function () {",
+                  "    pm.expect(material.id).to.eql(pm.collectionVariables.get('idMaterial'));",
+                  "    pm.expect(material.precioUnitario).to.eql('0.30');",
+                  "    pm.expect(material.unidad).to.eql('plancha');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenAdmin}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"precioUnitario\": \"0.3\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/admin/materiales/{{idMaterial}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "materiales", "{{idMaterial}}"]
+            },
+            "description": "PATCH /api/v1/admin/materiales/:id con cualquier subconjunto de `nombre`, `unidad`, `precioUnitario`, `descripcion`, `activo`. El cambio de precio solo afecta a las cotizaciones NUEVAS (RF-08, RN-02)."
+          },
+          "response": []
+        },
+        {
+          "name": "Listar materiales con paginación (200)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const cuerpo = pm.response.json();",
+                  "pm.test('devuelve { datos, paginacion } con el material de esta ejecución', function () {",
+                  "    pm.expect(Object.keys(cuerpo).sort()).to.eql(['datos', 'paginacion']);",
+                  "    pm.expect(cuerpo.paginacion).to.eql({ pagina: 1, porPagina: 5, total: 1, totalPaginas: 1 });",
+                  "    pm.expect(Object.keys(cuerpo.datos[0]).sort()).to.eql(['activo', 'actualizadoEn', 'creadoEn', 'descripcion', 'id', 'nombre', 'precioUnitario', 'unidad']);",
+                  "    pm.expect(cuerpo.datos[0].id).to.eql(pm.collectionVariables.get('idMaterial'));",
+                  "    pm.expect(cuerpo.datos[0].precioUnitario).to.eql('0.30');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenAdmin}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/materiales?q={{marcaCatalogo}}&pagina=1&porPagina=5",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "materiales"],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "{{marcaCatalogo}}",
+                  "description": "Busca en el nombre (opcional)"
+                },
+                {
+                  "key": "pagina",
+                  "value": "1",
+                  "description": "Desde 1 (por defecto 1)"
+                },
+                {
+                  "key": "porPagina",
+                  "value": "5",
+                  "description": "De 1 a 100 (por defecto 20)"
+                },
+                {
+                  "key": "activo",
+                  "value": "true",
+                  "description": "true | false (opcional)",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "GET /api/v1/admin/materiales?pagina&porPagina&q&activo → 200 `{ datos: [material], paginacion }`, ordenado por nombre."
+          },
+          "response": []
+        },
+        {
+          "name": "Materiales con el token del cliente (403)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 403', function () {",
+                  "    pm.response.to.have.status(403);",
+                  "});",
+                  "",
+                  "pm.test('error PROHIBIDO con mensaje en español', function () {",
+                  "    const cuerpo = pm.response.json();",
+                  "    pm.expect(cuerpo.error.codigo).to.eql('PROHIBIDO');",
+                  "    pm.expect(cuerpo.error.mensaje).to.eql('No tienes permiso para realizar esta acción.');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenCliente}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nombre\": \"{{nombreMaterial}} cliente\",\n  \"unidad\": \"unidad\",\n  \"precioUnitario\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/admin/materiales",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "materiales"]
+            },
+            "description": "Un CLIENTE no puede gestionar el catálogo → 403 PROHIBIDO (RN-05, RNF-03)."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
       "name": "Errores",
       "description": "Contrato de errores de la API: siempre JSON con `{ error: { codigo, mensaje, detalles? } }` y el código HTTP correcto (RNF-02). Los 401 de autenticación están en la carpeta Autenticación; los 403 por rol llegarán en la subfase 1.2 (RF-02).",
       "item": [
@@ -1250,6 +2080,36 @@
     },
     {
       "key": "qCliente",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "marcaCatalogo",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "nombreCategoria",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "nombreCategoriaDuplicado",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "idCategoria",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "nombreMaterial",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "idMaterial",
       "value": "",
       "type": "string"
     }

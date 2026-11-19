@@ -1,4 +1,7 @@
 import type { PrismaClient } from '../../shared/database/prisma.js';
+import { escaparLike } from '../../shared/utils/consultas.js';
+
+export { escaparLike };
 
 /**
  * Acceso a datos del módulo de usuarios (RNF-07): la única capa que conoce Prisma.
@@ -29,14 +32,6 @@ export interface PaginaClientes {
 export interface UsuariosRepository {
   /** Clientes (rol CLIENTE) del más reciente al más antiguo, con búsqueda opcional. */
   listarClientes(consulta: ConsultaClientes): Promise<PaginaClientes>;
-}
-
-/**
- * Escapa los comodines de LIKE (`%`, `_`) y la barra invertida: Prisma NO los escapa en `contains`,
- * así que sin esto `?q=%` coincidiría con todos los usuarios. PostgreSQL usa `\` como escape por defecto.
- */
-export function escaparLike(texto: string): string {
-  return texto.replace(/[\\%_]/g, (caracter) => `\\${caracter}`);
 }
 
 export function crearUsuariosRepository(
