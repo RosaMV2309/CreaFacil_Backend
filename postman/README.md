@@ -12,40 +12,56 @@ autenticación y errores» (RNF-02, RNF-07).
 
 ## Contenido
 
-| Carpeta       | Petición                                              | Respuesta esperada                            |
-| ------------- | ----------------------------------------------------- | --------------------------------------------- |
-| Salud         | `GET {{baseUrl}}`                                     | 200 con `nombre` y `version`                  |
-| Salud         | `GET {{baseUrl}}/health`                              | 200 con `estado: "ok"` y `baseDatos: "ok"`    |
-| Autenticación | `POST {{baseUrl}}/auth/registro` (correo único)       | 201 con `{ token, tipo, expiraEn, usuario }`  |
-| Autenticación | `POST {{baseUrl}}/auth/registro` (mismo correo)       | 409 `CONFLICTO`                               |
-| Autenticación | `POST {{baseUrl}}/auth/registro` (datos inválidos)    | 400 `VALIDACION` (correo, contraseña y `rol`) |
-| Autenticación | `POST {{baseUrl}}/auth/login` (cliente)               | 200; guarda el token en `tokenCliente`        |
-| Autenticación | `POST {{baseUrl}}/auth/login` (contraseña incorrecta) | 401 `CREDENCIALES_INVALIDAS`                  |
-| Autenticación | `GET {{baseUrl}}/auth/perfil` con Bearer              | 200 con `{ usuario }`                         |
-| Autenticación | `GET {{baseUrl}}/auth/perfil` sin token               | 401 `NO_AUTENTICADO`                          |
-| Autenticación | `GET {{baseUrl}}/auth/perfil` con token alterado      | 401 `TOKEN_INVALIDO`                          |
-| Autenticación | `POST {{baseUrl}}/auth/login` (administradora)        | 200 con `usuario.rol = "ADMIN"`               |
-| Permisos      | `PATCH {{baseUrl}}/auth/perfil` con `tokenCliente`    | 200 con `{ usuario }` (nombre y teléfono)     |
-| Permisos      | `PATCH {{baseUrl}}/auth/perfil` con `rol`             | 400 `VALIDACION` (detalle en `rol`)           |
-| Permisos      | `GET {{baseUrl}}/admin/clientes` sin token            | 401 `NO_AUTENTICADO`                          |
-| Permisos      | `GET {{baseUrl}}/admin/clientes` con `tokenCliente`   | 403 `PROHIBIDO`                               |
-| Permisos      | `GET {{baseUrl}}/admin/clientes?q=` con `tokenAdmin`  | 200 con `{ datos, paginacion }`               |
-| Errores       | `GET {{baseUrl}}/no-existe`                           | 404 `RUTA_NO_ENCONTRADA`                      |
-| Errores       | `POST {{baseUrl}}/health` con JSON incompleto         | 400 `JSON_INVALIDO`                           |
-| Errores       | `POST {{baseUrl}}/health` con más de 1 MB             | 413 `CUERPO_DEMASIADO_GRANDE`                 |
-| Errores       | `POST {{baseUrl}}/health` con `charset=latin1`        | 415 `SOLICITUD_INVALIDA`                      |
+| Carpeta                   | Petición                                                         | Respuesta esperada                                     |
+| ------------------------- | ---------------------------------------------------------------- | ------------------------------------------------------ |
+| Salud                     | `GET {{baseUrl}}`                                                | 200 con `nombre` y `version`                           |
+| Salud                     | `GET {{baseUrl}}/health`                                         | 200 con `estado: "ok"` y `baseDatos: "ok"`             |
+| Autenticación             | `POST {{baseUrl}}/auth/registro` (correo único)                  | 201 con `{ token, tipo, expiraEn, usuario }`           |
+| Autenticación             | `POST {{baseUrl}}/auth/registro` (mismo correo)                  | 409 `CONFLICTO`                                        |
+| Autenticación             | `POST {{baseUrl}}/auth/registro` (datos inválidos)               | 400 `VALIDACION` (correo, contraseña y `rol`)          |
+| Autenticación             | `POST {{baseUrl}}/auth/login` (cliente)                          | 200; guarda el token en `tokenCliente`                 |
+| Autenticación             | `POST {{baseUrl}}/auth/login` (contraseña incorrecta)            | 401 `CREDENCIALES_INVALIDAS`                           |
+| Autenticación             | `GET {{baseUrl}}/auth/perfil` con Bearer                         | 200 con `{ usuario }`                                  |
+| Autenticación             | `GET {{baseUrl}}/auth/perfil` sin token                          | 401 `NO_AUTENTICADO`                                   |
+| Autenticación             | `GET {{baseUrl}}/auth/perfil` con token alterado                 | 401 `TOKEN_INVALIDO`                                   |
+| Autenticación             | `POST {{baseUrl}}/auth/login` (administradora)                   | 200 con `usuario.rol = "ADMIN"`                        |
+| Permisos                  | `PATCH {{baseUrl}}/auth/perfil` con `tokenCliente`               | 200 con `{ usuario }` (nombre y teléfono)              |
+| Permisos                  | `PATCH {{baseUrl}}/auth/perfil` con `rol`                        | 400 `VALIDACION` (detalle en `rol`)                    |
+| Permisos                  | `GET {{baseUrl}}/admin/clientes` sin token                       | 401 `NO_AUTENTICADO`                                   |
+| Permisos                  | `GET {{baseUrl}}/admin/clientes` con `tokenCliente`              | 403 `PROHIBIDO`                                        |
+| Permisos                  | `GET {{baseUrl}}/admin/clientes?q=` con `tokenAdmin`             | 200 con `{ datos, paginacion }`                        |
+| Catálogo · Administración | `POST {{baseUrl}}/admin/categorias` con `tokenAdmin`             | 201 con `{ categoria }`; guarda `idCategoria`          |
+| Catálogo · Administración | `POST {{baseUrl}}/admin/categorias` (mismo nombre en mayúsculas) | 409 `CONFLICTO`                                        |
+| Catálogo · Administración | `GET {{baseUrl}}/admin/categorias?q=`                            | 200 `{ datos }` con `serviciosActivos`                 |
+| Catálogo · Administración | `PATCH {{baseUrl}}/admin/categorias/{{idCategoria}}`             | 200 con `descripcion` y `orden` nuevos                 |
+| Catálogo · Administración | `PATCH …/categorias/{{idCategoria}}` `{ activa: false }`         | 200 con `activa = false`                               |
+| Catálogo · Administración | `DELETE …/categorias/{{idCategoria}}`                            | 404 `RUTA_NO_ENCONTRADA` (solo se desactiva)           |
+| Catálogo · Administración | `GET {{baseUrl}}/admin/categorias` sin token                     | 401 `NO_AUTENTICADO`                                   |
+| Catálogo · Administración | `POST {{baseUrl}}/admin/materiales` (`precioUnitario: 2.5`)      | 201 con `precioUnitario = "2.50"`; guarda `idMaterial` |
+| Catálogo · Administración | `POST {{baseUrl}}/admin/materiales` (mismo nombre)               | 409 `CONFLICTO`                                        |
+| Catálogo · Administración | `POST {{baseUrl}}/admin/materiales` (`precioUnitario: 1.234`)    | 400 `VALIDACION` en `precioUnitario`                   |
+| Catálogo · Administración | `PATCH …/materiales/{{idMaterial}}` (`"0.3"`)                    | 200 con `precioUnitario = "0.30"`                      |
+| Catálogo · Administración | `GET {{baseUrl}}/admin/materiales?q=&pagina=1&porPagina=5`       | 200 `{ datos, paginacion }`                            |
+| Catálogo · Administración | `POST {{baseUrl}}/admin/materiales` con `tokenCliente`           | 403 `PROHIBIDO`                                        |
+| Errores                   | `GET {{baseUrl}}/no-existe`                                      | 404 `RUTA_NO_ENCONTRADA`                               |
+| Errores                   | `POST {{baseUrl}}/health` con JSON incompleto                    | 400 `JSON_INVALIDO`                                    |
+| Errores                   | `POST {{baseUrl}}/health` con más de 1 MB                        | 413 `CUERPO_DEMASIADO_GRANDE`                          |
+| Errores                   | `POST {{baseUrl}}/health` con `charset=latin1`                   | 415 `SOLICITUD_INVALIDA`                               |
 
 Cada petición comprueba el código HTTP y la forma del cuerpo. A nivel de colección se comprueba en
 **todas** las respuestas que el `Content-Type` es JSON, que están las cabeceras de seguridad
 (`X-Content-Type-Options: nosniff`, sin `X-Powered-By`) y, en los errores, la forma
-`{ "error": { "codigo", "mensaje" } }` sin pilas de error. En total: **20 peticiones y 110 aserciones**.
+`{ "error": { "codigo", "mensaje" } }` sin pilas de error. En total: **33 peticiones y 169 aserciones**.
 
 Variables de colección que rellenan los scripts: `emailCliente` (generado en cada ejecución como
 `cliente+<marca de tiempo>@newman.creafacil.test`, el dominio reservado para los datos de prueba; ver
 «Limpieza de los datos de prueba»), `passwordCliente`, `tokenCliente`, `tokenAdmin` y `qCliente`
 (el correo del cliente codificado para la URL: el `+` en una query significa espacio).
+La carpeta **Catálogo · Administración** añade `marcaCatalogo` (marca de tiempo de la ejecución),
+`nombreCategoria`, `nombreCategoriaDuplicado`, `idCategoria`, `nombreMaterial` e `idMaterial`. Los
+nombres empiezan por el prefijo reservado `[newman] ` para que la limpieza los borre.
 
-La carpeta **Permisos** reutiliza `tokenCliente` y `tokenAdmin` de **Autenticación**: si la ejecutas sola,
+Las carpetas **Permisos** y **Catálogo · Administración** reutilizan `tokenCliente` y `tokenAdmin` de **Autenticación**: si la ejecutas sola,
 ejecuta antes «Inicio de sesión del cliente» y «Inicio de sesión de la administradora».
 El cuerpo de más de 1 MB lo genera el _pre-request script_ de «Cuerpo demasiado grande (413)».
 
@@ -77,7 +93,7 @@ El cuerpo de más de 1 MB lo genera el _pre-request script_ de «Cuerpo demasiad
    el **Current value** de `adminPassword` (ver arriba).
 4. En **Collections**, abre «CreaFácil API» y pulsa **Run** (o clic derecho → _Run collection_)
    y después **Run CreaFácil API**.
-5. Deberías ver las 20 peticiones en verde y 110 pruebas superadas (_Passed_). También puedes abrir una
+5. Deberías ver las 33 peticiones en verde y 169 pruebas superadas (_Passed_). También puedes abrir una
    petición, pulsar **Send** y ver sus resultados en la pestaña **Test Results** de la respuesta.
 
 ## Ejecutarla desde la terminal con newman
@@ -98,7 +114,8 @@ con `npm run db:limpiar-pruebas`.
 
 ## Limpieza de los datos de prueba
 
-Cada ejecución registra **un cliente** con un correo del dominio reservado `@newman.creafacil.test`.
+Cada ejecución registra **un cliente** con un correo del dominio reservado `@newman.creafacil.test` y
+crea **una categoría y un material** con el prefijo reservado `[newman] `.
 Para que no se acumulen en tu base de datos de desarrollo:
 
 - `npm run test:postman` ejecuta `npm run db:limpiar-pruebas` **al terminar**, tanto si newman pasa como si
@@ -109,15 +126,20 @@ Para que no se acumulen en tu base de datos de desarrollo:
   Limpieza de datos de prueba · base de datos: creafacil en localhost:5432
   Clientes de prueba encontrados: 1 (newman: 1, antiguos: 0)
     - cliente+1763400000000@newman.creafacil.test
-  Borrados: 1 usuarios, 0 cotizaciones, 0 solicitudes, 0 pedidos y 0 cambios de estado.
+  Categorías de prueba encontradas: 1
+    - [newman] Categoría 1763400000000
+  Materiales de prueba encontrados: 1
+    - [newman] Material 1763400000000
+  Borrados: 1 usuarios, 0 cotizaciones, 0 solicitudes, 0 pedidos, 0 cambios de estado, 1 categorías y 1 materiales.
   ```
 
-- Si ejecutas la colección desde la **app de Postman**, los clientes se quedan: bórralos a mano con
+- Si ejecutas la colección desde la **app de Postman**, los clientes, categorías y materiales de prueba se quedan: bórralos a mano con
   `npm run db:limpiar-pruebas` (añade `-- --simular` para ver antes qué borraría).
 - Las versiones anteriores de la colección usaban `cliente+<marca>@creafacil.test`. Para borrarlos:
   `npm run db:limpiar-pruebas -- --incluir-antiguos`.
 
-El comando solo borra cuentas **CLIENTE** de esos dominios (nunca una ADMIN ni tus otros usuarios), no se
+El comando solo borra cuentas **CLIENTE** de esos dominios (nunca una ADMIN ni tus otros usuarios) y las
+categorías y materiales «[newman] …» (nunca los tuyos; si algo ajeno depende de ellos, no borra nada), no se
 ejecuta con `NODE_ENV=production` y no existe ningún endpoint HTTP para hacerlo. Detalles en el
 [README principal](../README.md#limpieza-de-los-datos-de-prueba-de-newman).
 
