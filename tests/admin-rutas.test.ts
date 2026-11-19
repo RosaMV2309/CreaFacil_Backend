@@ -68,8 +68,23 @@ describe('grupo /api/v1/admin: todas las rutas exigen el rol ADMIN', () => {
   const rutas = rutasAdmin();
   const tokenCliente = tokens.firmar({ id: ID, rol: 'CLIENTE' }).token;
 
-  it('hay rutas administrativas registradas (incluida GET /admin/clientes)', () => {
+  it('hay rutas administrativas registradas (clientes, categorías y materiales)', () => {
     expect(rutas).toContainEqual({ metodo: 'get', ruta: '/api/v1/admin/clientes' });
+    for (const seccion of ['categorias', 'materiales']) {
+      const base = `/api/v1/admin/${seccion}`;
+      expect(rutas).toEqual(
+        expect.arrayContaining([
+          { metodo: 'get', ruta: base },
+          { metodo: 'post', ruta: base },
+          { metodo: 'get', ruta: `${base}/${ID}` },
+          { metodo: 'patch', ruta: `${base}/${ID}` },
+        ]),
+      );
+      // Solo se desactiva: no existe ningún DELETE (ni PUT) en el catálogo.
+      expect(rutas.filter((r) => r.ruta.startsWith(base)).map((r) => r.metodo)).not.toContain(
+        'delete',
+      );
+    }
   });
 
   it.each(rutas)('$metodo $ruta sin token → 401 NO_AUTENTICADO', async ({ metodo, ruta }) => {
