@@ -1,5 +1,9 @@
+import { calcularPaginacion, type Paginado } from '../../shared/utils/consultas.js';
 import type { UsuariosRepository } from './usuarios.repository.js';
 import type { FiltroClientes } from './usuarios.schemas.js';
+
+export { calcularPaginacion };
+export type { Paginacion, Paginado } from '../../shared/utils/consultas.js';
 
 /**
  * Reglas de negocio de la gestión de usuarios por la administradora (RF-02, RNF-03).
@@ -16,27 +20,8 @@ export interface ClienteListado {
   readonly creadoEn: string;
 }
 
-export interface Paginacion {
-  readonly pagina: number;
-  readonly porPagina: number;
-  readonly total: number;
-  /** `0` si no hay resultados. */
-  readonly totalPaginas: number;
-}
-
-/** Forma común de los listados paginados de la API: `{ datos, paginacion }`. */
-export interface Paginado<T> {
-  readonly datos: T[];
-  readonly paginacion: Paginacion;
-}
-
 export interface UsuariosService {
   listarClientes(filtro: FiltroClientes): Promise<Paginado<ClienteListado>>;
-}
-
-/** Calcula la paginación a partir del total (función pura). */
-export function calcularPaginacion(pagina: number, porPagina: number, total: number): Paginacion {
-  return { pagina, porPagina, total, totalPaginas: Math.ceil(total / porPagina) };
 }
 
 export function crearUsuariosService(repositorio: UsuariosRepository): UsuariosService {
