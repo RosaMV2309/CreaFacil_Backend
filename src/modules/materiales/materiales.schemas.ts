@@ -13,6 +13,7 @@ import {
   descripcionOpcional,
   textoNormalizado,
 } from '../../shared/utils/esquemas.js';
+import { crearEsquemaPrecio, mensajesPrecio } from '../../shared/utils/precio.js';
 
 /**
  * Validación de entrada de la gestión de materiales por la administradora (RF-22, RF-08, RNF-04).
@@ -30,48 +31,14 @@ export const NOMBRE_MIN = 2;
 export const NOMBRE_MAX = 80;
 export const UNIDAD_MAX = 30;
 export const DESCRIPCION_MAX = 500;
-export const PRECIO_MAXIMO = '99999.99';
+export { normalizarPrecio, PRECIO_MAXIMO } from '../../shared/utils/precio.js';
 
-/** Hasta 5 cifras enteras y 2 decimales, con punto: el máximo implícito es 99999.99. */
-const FORMATO_PRECIO = /^\d{1,5}(\.\d{1,2})?$/;
+const MENSAJES_PRECIO = mensajesPrecio('El precio unitario');
+export const MENSAJE_PRECIO_FORMATO = MENSAJES_PRECIO.formato;
+export const MENSAJE_PRECIO_CERO = MENSAJES_PRECIO.cero;
 
-export const MENSAJE_PRECIO_FORMATO =
-  `El precio unitario debe ser un número positivo con hasta 2 decimales y como máximo ${PRECIO_MAXIMO} ` +
-  '(usa punto decimal, por ejemplo 0.75 o "0.75")';
-export const MENSAJE_PRECIO_CERO = 'El precio unitario debe ser mayor que 0';
-
-/**
- * Normaliza un precio YA validado a texto con 2 decimales, solo con operaciones de texto
- * (sin float): «7» → «7.00», «0.5» → «0.50», «007.25» → «7.25». Función pura.
- */
-export function normalizarPrecio(texto: string): string {
-  const [entera = '0', decimales = ''] = texto.split('.');
-  const sinCeros = entera.replace(/^0+(?=\d)/, '');
-  return `${sinCeros}.${decimales.padEnd(2, '0')}`;
-}
-
-/** `precioUnitario`: número o texto → texto normalizado «x.xx». */
-export const esquemaPrecio = z
-  .union([z.number(), z.string()], {
-    error: (issue) =>
-      issue.input === undefined
-        ? 'El precio unitario es obligatorio'
-        : 'El precio unitario debe ser un número o un texto como "0.75"',
-  })
-  .transform((valor, ctx) => {
-    // String(número) da la representación más corta que identifica al número en JavaScript:
-    // 0.75 → "0.75", pero 0.1 + 0.2 → "0.30000000000000004" y 1e21 → "1e+21" (ambos se rechazan).
-    const texto = typeof valor === 'number' ? String(valor) : valor.trim();
-    if (!FORMATO_PRECIO.test(texto)) {
-      ctx.addIssue({ code: 'custom', message: MENSAJE_PRECIO_FORMATO });
-      return z.NEVER;
-    }
-    if (!/[1-9]/.test(texto)) {
-      ctx.addIssue({ code: 'custom', message: MENSAJE_PRECIO_CERO });
-      return z.NEVER;
-    }
-    return normalizarPrecio(texto);
-  });
+/** `precioUnitario`: número o texto → texto normalizado «x.xx» (ver `shared/utils/precio.ts`). */
+export const esquemaPrecio = crearEsquemaPrecio('El precio unitario');
 
 const CAMPOS = 'nombre, unidad, precioUnitario, descripcion y activo';
 

@@ -144,6 +144,7 @@ describe('describirResultado y describirBaseDatos', () => {
     { id: '2', email: 'cliente+1@creafacil.test', origen: 'antiguo' as const },
   ];
 
+  const servicios = [{ id: 's', nombre: '[newman] Servicio 1' }];
   const categorias = [{ id: 'c', nombre: '[newman] Categoría 1' }];
   const materiales = [
     { id: 'm1', nombre: '[newman] Material 1' },
@@ -154,14 +155,19 @@ describe('describirResultado y describirBaseDatos', () => {
     const lineas = describirResultado({
       simulado: true,
       usuarios,
+      servicios,
       categorias,
       materiales,
+      avisos: [],
       borrados: {
         usuarios: 0,
         cotizaciones: 0,
         solicitudes: 0,
         pedidos: 0,
         historialPedidos: 0,
+        servicios: 0,
+        fotos: 0,
+        archivos: 0,
         categorias: 0,
         materiales: 0,
       },
@@ -170,12 +176,15 @@ describe('describirResultado y describirBaseDatos', () => {
       'Clientes de prueba encontrados: 2 (newman: 1, antiguos: 1)',
       '  - a@newman.creafacil.test',
       '  - cliente+1@creafacil.test',
+      'Servicios de prueba encontrados: 1',
+      '  - [newman] Servicio 1',
       'Categorías de prueba encontradas: 1',
       '  - [newman] Categoría 1',
       'Materiales de prueba encontrados: 2',
       '  - [newman] Material 1',
       '  - [newman] Material 2',
-      'SIMULACIÓN: se borrarían 2 usuarios, 1 categorías y 2 materiales. No se ha borrado nada.',
+      'SIMULACIÓN: se borrarían 2 usuarios, 1 servicios (con sus fotos), 1 categorías y 2 materiales. ' +
+        'No se ha borrado nada.',
     ]);
   });
 
@@ -183,22 +192,51 @@ describe('describirResultado y describirBaseDatos', () => {
     const lineas = describirResultado({
       simulado: false,
       usuarios,
+      servicios,
       categorias,
       materiales,
+      avisos: [],
       borrados: {
         usuarios: 2,
         cotizaciones: 3,
         solicitudes: 4,
         pedidos: 5,
         historialPedidos: 6,
+        servicios: 1,
+        fotos: 3,
+        archivos: 2,
         categorias: 1,
         materiales: 2,
       },
     });
     expect(lineas.at(-1)).toBe(
       'Borrados: 2 usuarios, 3 cotizaciones, 4 solicitudes, 5 pedidos, 6 cambios de estado, ' +
-        '1 categorías y 2 materiales.',
+        '1 servicios, 3 fotos (2 archivos), 1 categorías y 2 materiales.',
     );
+  });
+
+  it('muestra los archivos que no se pudieron borrar antes del recuento', () => {
+    const lineas = describirResultado({
+      simulado: false,
+      usuarios: [],
+      servicios,
+      categorias: [],
+      materiales: [],
+      avisos: ['No se pudo borrar el archivo x.png: EPERM'],
+      borrados: {
+        usuarios: 0,
+        cotizaciones: 0,
+        solicitudes: 0,
+        pedidos: 0,
+        historialPedidos: 0,
+        servicios: 1,
+        fotos: 1,
+        archivos: 0,
+        categorias: 0,
+        materiales: 0,
+      },
+    });
+    expect(lineas.at(-2)).toBe('Aviso: No se pudo borrar el archivo x.png: EPERM');
   });
 
   it('describe la base de datos sin mostrar el usuario ni la contraseña', () => {

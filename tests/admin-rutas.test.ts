@@ -16,7 +16,12 @@ import {
   MODULOS_ADMIN,
 } from '../src/modules/admin/admin.routes.js';
 import { crearServicioTokens } from '../src/shared/security/tokens.js';
-import { crearAppDePrueba, crearPrismaSinBaseDatos, envDePrueba } from './helpers.js';
+import {
+  crearAlmacenamientoMemoria,
+  crearAppDePrueba,
+  crearPrismaSinBaseDatos,
+  envDePrueba,
+} from './helpers.js';
 
 const ID = '3f2a6c1e-8b4d-4e5f-9a7b-1c2d3e4f5a6b';
 const METODOS = ['get', 'post', 'put', 'patch', 'delete'] as const;
@@ -34,7 +39,8 @@ interface CapaRouter {
 
 const prisma = crearPrismaSinBaseDatos();
 const tokens = crearServicioTokens({ secreto: envDePrueba.JWT_SECRET, duracion: '1h' });
-const dependencias: DependenciasAdmin = { prisma, tokens };
+const almacenamiento = crearAlmacenamientoMemoria();
+const dependencias: DependenciasAdmin = { prisma, tokens, almacenamiento };
 
 /** Lista las rutas (método + ruta completa bajo /api/v1/admin) de los módulos registrados. */
 function rutasAdmin(): RutaRegistrada[] {
@@ -64,9 +70,23 @@ function rutasAdmin(): RutaRegistrada[] {
 }
 
 describe('grupo /api/v1/admin: todas las rutas exigen el rol ADMIN', () => {
-  const app = crearApp(envDePrueba, { prisma });
+  const app = crearApp(envDePrueba, { prisma, almacenamiento });
   const rutas = rutasAdmin();
   const tokenCliente = tokens.firmar({ id: ID, rol: 'CLIENTE' }).token;
+
+  it('servicios: CRUD sin DELETE y fotos (subir, ordenar y borrar) bajo el grupo', () => {
+    const base = '/api/v1/admin/servicios';
+    expect(rutas.filter((r) => r.ruta.startsWith(base))).toEqual([
+      { metodo: 'get', ruta: base },
+      { metodo: 'post', ruta: base },
+      { metodo: 'get', ruta: `${base}/${ID}` },
+      { metodo: 'patch', ruta: `${base}/${ID}` },
+      { metodo: 'post', ruta: `${base}/${ID}/fotos` },
+      { metodo: 'patch', ruta: `${base}/${ID}/fotos/orden` },
+      // El único DELETE es el de una foto: los servicios solo se desactivan (RF-05).
+      { metodo: 'delete', ruta: `${base}/${ID}/fotos/${ID}` },
+    ]);
+  });
 
   it('hay rutas administrativas registradas (clientes, categorías y materiales)', () => {
     expect(rutas).toContainEqual({ metodo: 'get', ruta: '/api/v1/admin/clientes' });

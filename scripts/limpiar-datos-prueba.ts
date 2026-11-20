@@ -5,6 +5,7 @@
  */
 import { config } from 'dotenv';
 
+import { crearAlmacenamientoDisco } from '../src/shared/almacenamiento/disco.js';
 import { crearClientePrisma } from '../src/shared/database/prisma.js';
 import { ejecutarCli } from './limpieza-datos-prueba.js';
 
@@ -12,6 +13,12 @@ config({ quiet: true });
 
 process.exitCode = await ejecutarCli(process.argv.slice(2), process.env, {
   crearPrisma: crearClientePrisma,
+  // Las fotos de los servicios de prueba se borran de la misma carpeta que usa la API.
+  crearAlmacenamiento: (entorno) =>
+    crearAlmacenamientoDisco({
+      carpeta: entorno.UPLOADS_DIR?.trim() || 'uploads',
+      urlBase: 'http://localhost',
+    }),
   escribir: (linea) => {
     console.info(linea);
   },

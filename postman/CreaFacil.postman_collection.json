@@ -12,10 +12,14 @@
         "type": "text/javascript",
         "exec": [
           "// Comprobaciones comunes a todas las respuestas de la API (RNF-02).",
-          "pm.test('[común] responde en JSON (Content-Type application/json)', function () {",
-          "    pm.response.to.have.header('Content-Type');",
-          "    pm.expect(pm.response.headers.get('Content-Type')).to.match(/application\\/json/);",
-          "});",
+          "// Las fotos del catálogo (/uploads/…) son imágenes; el resto de respuestas, JSON.",
+          "const tipoContenido = pm.response.headers.get('Content-Type') || '';",
+          "if (!tipoContenido.startsWith('image/')) {",
+          "    pm.test('[común] responde en JSON (Content-Type application/json)', function () {",
+          "        pm.response.to.have.header('Content-Type');",
+          "        pm.expect(tipoContenido).to.match(/application\\/json/);",
+          "    });",
+          "}",
           "",
           "pm.test('[común] aplica cabeceras de seguridad y oculta X-Powered-By', function () {",
           "    pm.expect(pm.response.headers.get('X-Content-Type-Options')).to.eql('nosniff');",
@@ -1852,6 +1856,720 @@
       ]
     },
     {
+      "name": "Catálogo · Servicios",
+      "description": "Servicios del catálogo y sus fotos (RF-22, RF-04, RF-05; Fase 2 · 2.2). Usa `{{idCategoria}}` y `{{idMaterial}}` de la carpeta «Catálogo · Administración». Los nombres empiezan por «[newman] »: `npm run db:limpiar-pruebas` borra el servicio y sus fotos (registro y archivo) al final de `npm run test:postman`. Las subidas usan los archivos de `postman/fixtures/` (rutas relativas a la raíz del repositorio).",
+      "item": [
+        {
+          "name": "Crear un servicio con materiales (201)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Prefijo «[newman] »: `npm run db:limpiar-pruebas` borra el servicio y sus fotos al final.",
+                  "pm.collectionVariables.set('nombreServicio', '[newman] Servicio ' + pm.collectionVariables.get('marcaCatalogo'));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 201', function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "",
+                  "const servicio = pm.response.json().servicio;",
+                  "pm.collectionVariables.set('idServicio', servicio.id);",
+                  "",
+                  "pm.test('devuelve la ficha completa con el precio en texto y el material habitual', function () {",
+                  "    pm.expect(Object.keys(servicio).sort()).to.eql(['activo', 'actualizadoEn', 'categoria', 'creadoEn', 'descripcion', 'dimensionesOrientativas', 'fotos', 'id', 'materiales', 'nombre', 'numeroFotos', 'observaciones', 'portadaUrl', 'precioBaseReferencial']);",
+                  "    pm.expect(servicio.nombre).to.eql(pm.collectionVariables.get('nombreServicio'));",
+                  "    pm.expect(servicio.categoria.id).to.eql(pm.collectionVariables.get('idCategoria'));",
+                  "    pm.expect(servicio.precioBaseReferencial).to.eql('35.50');",
+                  "    pm.expect(servicio.activo).to.eql(true);",
+                  "    pm.expect(servicio.materiales.map(function (m) { return m.id; })).to.eql([pm.collectionVariables.get('idMaterial')]);",
+                  "    pm.expect(servicio.fotos).to.eql([]);",
+                  "    pm.expect(servicio.portadaUrl).to.eql(null);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenAdmin}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"categoriaId\": \"{{idCategoria}}\",\n  \"nombre\": \"{{nombreServicio}}\",\n  \"descripcion\": \"Mural creado por la colección de Postman\",\n  \"dimensionesOrientativas\": \"Pared de hasta 3 m\",\n  \"observaciones\": \"Incluye boceto previo\",\n  \"precioBaseReferencial\": 35.5,\n  \"materialIds\": [\"{{idMaterial}}\"]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/admin/servicios",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "servicios"]
+            },
+            "description": "POST /api/v1/admin/servicios (RF-22, RF-04). Cuerpo: `{ categoriaId, nombre (2–120), descripcion?, dimensionesOrientativas?, observaciones?, precioBaseReferencial?, materialIds?: uuid[], activo? }` → 201 `{ servicio }`. La categoría y los materiales deben existir (los materiales nuevos, activos). Guarda `idServicio`."
+          },
+          "response": []
+        },
+        {
+          "name": "Crear un servicio duplicado (409)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 409', function () {",
+                  "    pm.response.to.have.status(409);",
+                  "});",
+                  "pm.test('CONFLICTO: el nombre es único dentro de la categoría', function () {",
+                  "    const error = pm.response.json().error;",
+                  "    pm.expect(error.codigo).to.eql('CONFLICTO');",
+                  "    pm.expect(error.mensaje).to.eql('Ya existe un servicio con ese nombre en esta categoría.');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenAdmin}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"categoriaId\": \"{{idCategoria}}\",\n  \"nombre\": \"  {{nombreServicio}}  \"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/admin/servicios",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "servicios"]
+            },
+            "description": "El nombre es único DENTRO de su categoría (sin distinguir mayúsculas) → 409."
+          },
+          "response": []
+        },
+        {
+          "name": "Listar servicios (200)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "const cuerpo = pm.response.json();",
+                  "pm.test('devuelve el resumen paginado del servicio de esta ejecución', function () {",
+                  "    pm.expect(cuerpo.paginacion).to.eql({ pagina: 1, porPagina: 20, total: 1, totalPaginas: 1 });",
+                  "    const s = cuerpo.datos[0];",
+                  "    pm.expect(Object.keys(s).sort()).to.eql(['activo', 'actualizadoEn', 'categoria', 'creadoEn', 'id', 'nombre', 'numeroFotos', 'portadaUrl', 'precioBaseReferencial']);",
+                  "    pm.expect(s.id).to.eql(pm.collectionVariables.get('idServicio'));",
+                  "    pm.expect(Object.keys(s.categoria).sort()).to.eql(['activa', 'id', 'nombre']);",
+                  "    pm.expect(s.numeroFotos).to.eql(0);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenAdmin}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/servicios?q={{marcaCatalogo}}&categoriaId={{idCategoria}}&pagina=1&porPagina=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "servicios"],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "{{marcaCatalogo}}"
+                },
+                {
+                  "key": "categoriaId",
+                  "value": "{{idCategoria}}"
+                },
+                {
+                  "key": "pagina",
+                  "value": "1"
+                },
+                {
+                  "key": "porPagina",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": "GET /api/v1/admin/servicios?pagina&porPagina&q&categoriaId&activo → 200 `{ datos: [resumen], paginacion }`. Resumen: id, nombre, categoria {id, nombre, activa}, activo, precioBaseReferencial, portadaUrl, numeroFotos y fechas."
+          },
+          "response": []
+        },
+        {
+          "name": "Ver la ficha de un servicio (200)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 200 con la ficha completa', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    const servicio = pm.response.json().servicio;",
+                  "    pm.expect(Object.keys(servicio).sort()).to.eql(['activo', 'actualizadoEn', 'categoria', 'creadoEn', 'descripcion', 'dimensionesOrientativas', 'fotos', 'id', 'materiales', 'nombre', 'numeroFotos', 'observaciones', 'portadaUrl', 'precioBaseReferencial']);",
+                  "    pm.expect(servicio.dimensionesOrientativas).to.eql('Pared de hasta 3 m');",
+                  "    pm.expect(Object.keys(servicio.materiales[0]).sort()).to.eql(['activo', 'id', 'nombre', 'unidad']);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenAdmin}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/servicios/{{idServicio}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "servicios", "{{idServicio}}"]
+            },
+            "description": "GET /api/v1/admin/servicios/:id → 200 `{ servicio }` con materiales habituales y fotos."
+          },
+          "response": []
+        },
+        {
+          "name": "Editar el precio y los materiales (200)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('normaliza el precio y REEMPLAZA la lista de materiales', function () {",
+                  "    const servicio = pm.response.json().servicio;",
+                  "    pm.expect(servicio.precioBaseReferencial).to.eql('40.00');",
+                  "    pm.expect(servicio.materiales).to.eql([]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenAdmin}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"precioBaseReferencial\": \"40\",\n  \"materialIds\": []\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/admin/servicios/{{idServicio}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "servicios", "{{idServicio}}"]
+            },
+            "description": "PATCH /api/v1/admin/servicios/:id con cualquier subconjunto de campos. `materialIds` REEMPLAZA la lista (`[]` la vacía); `precioBaseReferencial: null` lo quita."
+          },
+          "response": []
+        },
+        {
+          "name": "Subir una foto PNG (201)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 201', function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "const foto = pm.response.json().foto;",
+                  "pm.collectionVariables.set('idFoto', foto.id);",
+                  "pm.collectionVariables.set('urlFoto', foto.url);",
+                  "pm.test('devuelve { foto: { id, url, orden } } con una URL absoluta y un nombre aleatorio', function () {",
+                  "    pm.expect(Object.keys(foto).sort()).to.eql(['id', 'orden', 'url']);",
+                  "    pm.expect(foto.orden).to.eql(0);",
+                  "    pm.expect(foto.url).to.match(/^https?:\\/\\/[^/]+\\/uploads\\/[0-9a-f-]{36}\\.png$/);",
+                  "    pm.expect(foto.url).to.not.include('foto-prueba');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenAdmin}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "foto",
+                  "type": "file",
+                  "src": "postman/fixtures/foto-prueba.png",
+                  "description": "Imagen JPG, PNG o WebP de hasta 5 MB (en Postman: elige un archivo de tu PC)."
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/admin/servicios/{{idServicio}}/fotos",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "servicios", "{{idServicio}}", "fotos"]
+            },
+            "description": "POST /api/v1/admin/servicios/:id/fotos (RF-04), `multipart/form-data` con el campo **foto** de tipo File. El tipo se comprueba por el CONTENIDO (firma), no por la extensión. Máximo 5 MB (413) y 8 fotos por servicio (409). Guarda `idFoto` y `urlFoto`. Con newman, el archivo es `postman/fixtures/foto-prueba.png`."
+          },
+          "response": []
+        },
+        {
+          "name": "Ver la foto subida sin token (200, image/png)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 200 con image/png sin pedir sesión', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    pm.expect(pm.response.headers.get('Content-Type')).to.eql('image/png');",
+                  "});",
+                  "pm.test('permite mostrarla desde las apps web (CORP cross-origin) y se puede cachear', function () {",
+                  "    pm.expect(pm.response.headers.get('Cross-Origin-Resource-Policy')).to.eql('cross-origin');",
+                  "    pm.expect(pm.response.headers.get('Cache-Control')).to.match(/max-age=/);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": "{{urlFoto}}",
+            "description": "GET de la url devuelta (`/uploads/<archivo>`, fuera de /api/v1). Pública porque el catálogo es público. También se puede abrir en el navegador."
+          },
+          "response": []
+        },
+        {
+          "name": "Subir un archivo que no es una imagen (400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 400 VALIDACION en el campo foto', function () {",
+                  "    pm.response.to.have.status(400);",
+                  "    const error = pm.response.json().error;",
+                  "    pm.expect(error.codigo).to.eql('VALIDACION');",
+                  "    pm.expect(error.detalles[0].campo).to.eql('foto');",
+                  "    pm.expect(error.mensaje).to.include('no es una imagen JPG, PNG o WebP');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenAdmin}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "foto",
+                  "type": "file",
+                  "src": "postman/fixtures/no-es-imagen.png",
+                  "description": "Archivo de texto renombrado a .png."
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/admin/servicios/{{idServicio}}/fotos",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "servicios", "{{idServicio}}", "fotos"]
+            },
+            "description": "Un texto renombrado a `.png` se rechaza porque su contenido no tiene la firma de una imagen."
+          },
+          "response": []
+        },
+        {
+          "name": "Reordenar las fotos (200)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 200 con las fotos en el orden nuevo (0 = portada)', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    const fotos = pm.response.json().fotos;",
+                  "    pm.expect(fotos.map(function (f) { return f.id; })).to.eql([pm.collectionVariables.get('idFoto')]);",
+                  "    pm.expect(fotos[0].orden).to.eql(0);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenAdmin}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fotoIds\": [\"{{idFoto}}\"]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/admin/servicios/{{idServicio}}/fotos/orden",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "servicios", "{{idServicio}}", "fotos", "orden"]
+            },
+            "description": "PATCH /api/v1/admin/servicios/:id/fotos/orden `{ fotoIds: [...] }` con TODOS los ids de las fotos en el orden nuevo; la primera es la portada."
+          },
+          "response": []
+        },
+        {
+          "name": "Borrar la foto (200)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 200 con las fotos que quedan', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    pm.expect(pm.response.json().fotos).to.eql([]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenAdmin}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/servicios/{{idServicio}}/fotos/{{idFoto}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "servicios", "{{idServicio}}", "fotos", "{{idFoto}}"]
+            },
+            "description": "DELETE /api/v1/admin/servicios/:id/fotos/:fotoId: borra el registro Y el archivo, y reordena las demás sin huecos."
+          },
+          "response": []
+        },
+        {
+          "name": "La foto borrada ya no se sirve (404)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 404: el archivo se borró del disco', function () {",
+                  "    pm.response.to.have.status(404);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": "{{urlFoto}}",
+            "description": "Comprueba que el archivo desapareció."
+          },
+          "response": []
+        },
+        {
+          "name": "Desactivar el servicio (200)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 200 con activo false (no se borra, RF-05)', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "    pm.expect(pm.response.json().servicio.activo).to.eql(false);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenAdmin}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"activo\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/admin/servicios/{{idServicio}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "servicios", "{{idServicio}}"]
+            },
+            "description": "RF-05: un servicio desactivado deja de mostrarse a los clientes sin perderse. No existe DELETE de servicios."
+          },
+          "response": []
+        },
+        {
+          "name": "Servicios con el token del cliente (403)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 403 PROHIBIDO', function () {",
+                  "    pm.response.to.have.status(403);",
+                  "    pm.expect(pm.response.json().error.codigo).to.eql('PROHIBIDO');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenCliente}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"categoriaId\": \"{{idCategoria}}\",\n  \"nombre\": \"[newman] Intento del cliente\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/admin/servicios",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "servicios"]
+            },
+            "description": "RN-05 / RNF-03: un cliente no puede gestionar el catálogo."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
       "name": "Errores",
       "description": "Contrato de errores de la API: siempre JSON con `{ error: { codigo, mensaje, detalles? } }` y el código HTTP correcto (RNF-02). Los 401 de autenticación están en la carpeta Autenticación; los 403 por rol llegarán en la subfase 1.2 (RF-02).",
       "item": [
@@ -2110,6 +2828,26 @@
     },
     {
       "key": "idMaterial",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "nombreServicio",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "idServicio",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "idFoto",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "urlFoto",
       "value": "",
       "type": "string"
     }

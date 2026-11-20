@@ -6,6 +6,7 @@ import type { Env } from './config/env.js';
 import { crearAdminRouter } from './modules/admin/admin.routes.js';
 import { crearAuthRouter } from './modules/auth/auth.routes.js';
 import { crearHealthRouter } from './modules/health/health.routes.js';
+import type { AlmacenamientoArchivos } from './shared/almacenamiento/almacenamiento.js';
 import { crearLimitadorLogin } from './shared/middlewares/limite-intentos.js';
 import { crearServicioTokens } from './shared/security/tokens.js';
 
@@ -14,7 +15,10 @@ import { crearServicioTokens } from './shared/security/tokens.js';
  * Cada módulo nuevo (auth, categorias, cotizaciones…) se registra aquí y recibe
  * las dependencias que necesite (por ejemplo, el cliente Prisma para su repositorio).
  */
-export function crearRouterApi(env: Env, dependencias: DependenciasApp): Router {
+export function crearRouterApi(
+  env: Env,
+  dependencias: DependenciasApp & { almacenamiento: AlmacenamientoArchivos },
+): Router {
   const tokens = crearServicioTokens({
     secreto: env.JWT_SECRET,
     duracion: env.JWT_EXPIRES_IN,
@@ -42,7 +46,14 @@ export function crearRouterApi(env: Env, dependencias: DependenciasApp): Router 
   );
   // Rutas de la administradora: el grupo aplica auth + requireRole('ADMIN') a TODO /admin
   // (RF-02, RNF-03). Las secciones nuevas se registran en MODULOS_ADMIN, nunca aquí.
-  router.use('/admin', crearAdminRouter({ prisma: dependencias.prisma, tokens }));
+  router.use(
+    '/admin',
+    crearAdminRouter({
+      prisma: dependencias.prisma,
+      tokens,
+      almacenamiento: dependencias.almacenamiento,
+    }),
+  );
 
   return router;
 }

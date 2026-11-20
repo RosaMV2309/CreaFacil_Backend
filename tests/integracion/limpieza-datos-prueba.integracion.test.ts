@@ -5,7 +5,7 @@
  * los clientes de prueba con sus datos relacionados. Los datos auxiliares de este archivo usan el
  * dominio `limpieza.creafacil.test` y se borran al empezar y al terminar.
  */
-import { afterAll, beforeEach, describe, expect, inject, it } from 'vitest';
+import { afterAll, beforeEach, describe, expect, inject, it, vi } from 'vitest';
 
 import {
   DOMINIO_NEWMAN,
@@ -227,6 +227,9 @@ describe('limpieza de los datos de prueba de newman (integración)', () => {
       solicitudes: 1,
       pedidos: 1,
       historialPedidos: 1,
+      servicios: 0,
+      fotos: 0,
+      archivos: 0,
       categorias: 1,
       materiales: 1,
     });
@@ -388,6 +391,127 @@ describe('limpieza de los datos de prueba de newman (integración)', () => {
     ).resolves.toBe(1);
   });
 
+  describe('servicios de prueba con sus fotos (2.2)', () => {
+    const SERVICIO_NEWMAN = '[newman] Servicio de la prueba de limpieza';
+    const CLAVES = [
+      '11111111-1111-4111-8111-111111111111.png',
+      '22222222-2222-4222-8222-222222222222.jpg',
+    ];
+
+    /** Servicio de newman con 2 fotos y un material habitual de newman, en la categoría de newman. */
+    async function crearServicioNewman(): Promise<string> {
+      const categoria = await prisma.categoria.findUniqueOrThrow({
+        where: { nombre: CATEGORIA_NEWMAN },
+      });
+      const material = await prisma.material.findUniqueOrThrow({
+        where: { nombre: MATERIAL_NEWMAN },
+      });
+      const servicio = await prisma.servicio.create({
+        data: {
+          categoriaId: categoria.id,
+          nombre: SERVICIO_NEWMAN,
+          materialesHabituales: { create: { materialId: material.id } },
+          imagenes: {
+            create: [
+              ...CLAVES.map((clave, orden) => ({ clave, url: `http://x/uploads/${clave}`, orden })),
+              // Imagen externa sin archivo propio: se borra el registro, no hay archivo.
+              { url: 'https://ejemplo.test/externa.png', orden: 2 },
+            ],
+          },
+        },
+      });
+      return servicio.id;
+    }
+
+    it('borra el servicio, sus fotos (registro y archivo) y deja libres su categoría y su material', async () => {
+      const servicioId = await crearServicioNewman();
+      const eliminados: string[] = [];
+      const almacenamiento = {
+        eliminar: (clave: string) => {
+          if (clave === CLAVES[1]) {
+            return Promise.reject(new Error('EPERM'));
+          }
+          eliminados.push(clave);
+          return Promise.resolve();
+        },
+      };
+
+      const resultado = await limpiarDatosPrueba(
+        prisma,
+        { simular: false, incluirAntiguos: false },
+        'development',
+        almacenamiento,
+      );
+
+      expect(resultado.servicios.map((s) => s.nombre)).toEqual([SERVICIO_NEWMAN]);
+      expect(resultado.borrados).toMatchObject({
+        servicios: 1,
+        fotos: 3,
+        archivos: 1,
+        categorias: 1,
+        materiales: 1,
+      });
+      expect(eliminados).toEqual([CLAVES[0]]);
+      expect(resultado.avisos).toEqual([`No se pudo borrar el archivo ${CLAVES[1]}: EPERM`]);
+      await expect(prisma.servicio.count({ where: { id: servicioId } })).resolves.toBe(0);
+      await expect(prisma.imagenServicio.count({ where: { servicioId } })).resolves.toBe(0);
+      expect(await catalogoExistente()).toEqual([MATERIAL_INTACTO, NOMBRE_CATEGORIA].sort());
+    });
+
+    it('sin almacenamiento borra los registros pero ningún archivo', async () => {
+      await crearServicioNewman();
+      const resultado = await limpiarDatosPrueba(
+        prisma,
+        { simular: false, incluirAntiguos: false },
+        'development',
+      );
+      expect(resultado.borrados).toMatchObject({ servicios: 1, fotos: 3, archivos: 0 });
+    });
+
+    it('--simular lo lista pero no borra nada', async () => {
+      const servicioId = await crearServicioNewman();
+      const resultado = await limpiarDatosPrueba(
+        prisma,
+        { simular: true, incluirAntiguos: false },
+        'development',
+        { eliminar: () => Promise.reject(new Error('no debe llamarse')) },
+      );
+      expect(resultado.servicios.map((s) => s.nombre)).toEqual([SERVICIO_NEWMAN]);
+      await expect(prisma.imagenServicio.count({ where: { servicioId } })).resolves.toBe(3);
+    });
+
+    it('si una cotización ajena usa el servicio de prueba, no borra nada (ni archivos)', async () => {
+      const servicioId = await crearServicioNewman();
+      const cotizacionMaria = await prisma.cotizacion.findFirstOrThrow({
+        where: { clienteId: id('maria@limpieza.creafacil.test') },
+      });
+      await prisma.cotizacion.update({
+        where: { id: cotizacionMaria.id },
+        data: { servicioId },
+      });
+      const eliminar = vi.fn(() => Promise.resolve());
+      const antes = await existentes();
+
+      await expect(
+        limpiarDatosPrueba(prisma, { simular: false, incluirAntiguos: false }, 'development', {
+          eliminar,
+        }),
+      ).rejects.toThrow(/se usan en 1 cotización\(es\) o solicitud\(es\).*No se ha borrado nada/);
+
+      expect(eliminar).not.toHaveBeenCalled();
+      expect(await existentes()).toEqual(antes);
+      await expect(prisma.imagenServicio.count({ where: { servicioId } })).resolves.toBe(3);
+      // Se deja como estaba para que la limpieza del archivo pueda borrar la cotización.
+      const servicioOriginal = await prisma.servicio.findFirstOrThrow({
+        where: { categoria: { nombre: NOMBRE_CATEGORIA } },
+      });
+      await prisma.cotizacion.update({
+        where: { id: cotizacionMaria.id },
+        data: { servicioId: servicioOriginal.id },
+      });
+    });
+  });
+
   it('el comando completo (ejecutarCli) borra y muestra el recuento', async () => {
     const salida: string[] = [];
     const errores: string[] = [];
@@ -409,7 +533,7 @@ describe('limpieza de los datos de prueba de newman (integración)', () => {
     expect(salida).toContain('Clientes de prueba encontrados: 3 (newman: 2, antiguos: 1)');
     expect(salida.at(-1)).toBe(
       'Borrados: 3 usuarios, 1 cotizaciones, 1 solicitudes, 1 pedidos, 1 cambios de estado, ' +
-        '1 categorías y 1 materiales.',
+        '0 servicios, 0 fotos (0 archivos), 1 categorías y 1 materiales.',
     );
     expect(await existentes()).toEqual(INTACTAS.map((u) => u.email).sort());
   });

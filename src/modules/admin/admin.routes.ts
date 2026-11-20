@@ -1,11 +1,13 @@
 import { Router } from 'express';
 
+import type { AlmacenamientoArchivos } from '../../shared/almacenamiento/almacenamiento.js';
 import type { PrismaClient } from '../../shared/database/prisma.js';
 import { crearAuth } from '../../shared/middlewares/auth.js';
 import { requireRole } from '../../shared/middlewares/require-role.js';
 import type { ServicioTokens } from '../../shared/security/tokens.js';
 import { crearCategoriasAdminRouter } from '../categorias/categorias.routes.js';
 import { crearMaterialesAdminRouter } from '../materiales/materiales.routes.js';
+import { crearServiciosAdminRouter } from '../servicios/servicios.routes.js';
 import { crearClientesAdminRouter } from '../usuarios/usuarios.routes.js';
 
 /**
@@ -28,6 +30,8 @@ import { crearClientesAdminRouter } from '../usuarios/usuarios.routes.js';
 export interface DependenciasAdmin {
   readonly prisma: PrismaClient;
   readonly tokens: ServicioTokens;
+  /** Almacenamiento de las fotos del catálogo (interfaz intercambiable). */
+  readonly almacenamiento: AlmacenamientoArchivos;
 }
 
 /** Una sección del panel de la administradora montada bajo `/api/v1/admin`. */
@@ -42,6 +46,10 @@ export const MODULOS_ADMIN: readonly ModuloAdmin[] = [
   { prefijo: '/clientes', crearRouter: ({ prisma }) => crearClientesAdminRouter(prisma) },
   { prefijo: '/categorias', crearRouter: ({ prisma }) => crearCategoriasAdminRouter(prisma) },
   { prefijo: '/materiales', crearRouter: ({ prisma }) => crearMaterialesAdminRouter(prisma) },
+  {
+    prefijo: '/servicios',
+    crearRouter: ({ prisma, almacenamiento }) => crearServiciosAdminRouter(prisma, almacenamiento),
+  },
 ];
 
 export function crearAdminRouter(

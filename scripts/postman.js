@@ -12,7 +12,8 @@
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { config } from 'dotenv';
 
@@ -21,6 +22,8 @@ config({ quiet: true });
 const NEWMAN = 'newman@6.2.3';
 const COLECCION = 'postman/CreaFacil.postman_collection.json';
 const ENTORNO = 'postman/CreaFacil.local.postman_environment.json';
+// resolve() quita la barra final: en Windows, «\"» dentro de las comillas escaparía la comilla.
+const raizRepositorio = resolve(fileURLToPath(new URL('..', import.meta.url)));
 
 const entorno = JSON.parse(readFileSync(ENTORNO, 'utf8'));
 const valores = { adminEmail: process.env.ADMIN_EMAIL, adminPassword: process.env.ADMIN_PASSWORD };
@@ -68,6 +71,9 @@ try {
       ruta(COLECCION),
       '-e',
       ruta(entornoTemporal),
+      // Las subidas de fotos usan rutas relativas a la raíz del repositorio (postman/fixtures/…).
+      '--working-dir',
+      ruta(raizRepositorio),
       ...process.argv.slice(2),
     ],
     { stdio: 'inherit', shell: enWindows },

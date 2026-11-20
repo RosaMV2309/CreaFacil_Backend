@@ -48,9 +48,35 @@ const esquemaEnv = z
       .min(1, 'LOGIN_VENTANA_MINUTOS debe ser al menos 1')
       .max(1440, 'LOGIN_VENTANA_MINUTOS no puede superar 1440 (un día)')
       .default(15),
+    /**
+     * Carpeta donde el almacenamiento en disco guarda las fotos del catálogo (RF-04). Relativa a la
+     * carpeta desde la que se arranca la API o absoluta. Está en .gitignore.
+     */
+    UPLOADS_DIR: z
+      .string()
+      .trim()
+      .min(1, 'UPLOADS_DIR no puede estar vacía')
+      .refine((valor) => !valor.includes('\0'), 'UPLOADS_DIR no es una ruta válida')
+      .default('uploads'),
+    /**
+     * Origen público de la API (sin barra final ni ruta), con el que se construyen las URL ABSOLUTAS
+     * de las fotos: `${PUBLIC_BASE_URL}/uploads/<archivo>`. Por defecto `http://localhost:${PORT}`.
+     */
+    PUBLIC_BASE_URL: z
+      .url({
+        protocol: /^https?$/,
+        error: 'PUBLIC_BASE_URL debe ser una URL http(s), por ejemplo http://localhost:3000',
+      })
+      .transform((valor) => valor.replace(/\/+$/, ''))
+      .refine((valor) => {
+        const url = new URL(valor);
+        return url.pathname === '/' && !url.search && !url.hash;
+      }, 'PUBLIC_BASE_URL solo debe tener el origen (protocolo, servidor y puerto), sin ruta')
+      .optional(),
   })
   .transform((env) => ({
     ...env,
+    PUBLIC_BASE_URL: env.PUBLIC_BASE_URL ?? `http://localhost:${env.PORT}`,
     LOGIN_MAX_INTENTOS:
       env.LOGIN_MAX_INTENTOS ??
       (env.NODE_ENV === 'test' ? LOGIN_MAX_INTENTOS_EN_PRUEBAS : LOGIN_MAX_INTENTOS_POR_DEFECTO),

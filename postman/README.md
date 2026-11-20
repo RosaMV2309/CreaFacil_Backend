@@ -43,15 +43,28 @@ autenticación y errores» (RNF-02, RNF-07).
 | Catálogo · Administración | `PATCH …/materiales/{{idMaterial}}` (`"0.3"`)                    | 200 con `precioUnitario = "0.30"`                      |
 | Catálogo · Administración | `GET {{baseUrl}}/admin/materiales?q=&pagina=1&porPagina=5`       | 200 `{ datos, paginacion }`                            |
 | Catálogo · Administración | `POST {{baseUrl}}/admin/materiales` con `tokenCliente`           | 403 `PROHIBIDO`                                        |
+| Catálogo · Servicios      | `POST {{baseUrl}}/admin/servicios` con `materialIds`             | 201 `{ servicio }`; `precioBaseReferencial = "35.50"`  |
+| Catálogo · Servicios      | `POST {{baseUrl}}/admin/servicios` (mismo nombre)                | 409 `CONFLICTO`                                        |
+| Catálogo · Servicios      | `GET ./servicios?q=&categoriaId=`                                | 200 resumen paginado                                   |
+| Catálogo · Servicios      | `GET ./servicios/{{idServicio}}`                                 | 200 ficha completa                                     |
+| Catálogo · Servicios      | `PATCH ./servicios/{{idServicio}}` (precio y `materialIds: []`)  | 200 con `"40.00"` y sin materiales                     |
+| Catálogo · Servicios      | `POST ./servicios/{{idServicio}}/fotos` (form-data `foto`)       | 201 `{ foto }` con URL absoluta aleatoria              |
+| Catálogo · Servicios      | `GET {{urlFoto}}` sin token                                      | 200 `image/png`, CORP `cross-origin`                   |
+| Catálogo · Servicios      | `POST ./fotos` con un texto renombrado a `.png`                  | 400 `VALIDACION` en `foto`                             |
+| Catálogo · Servicios      | `PATCH ./fotos/orden`                                            | 200 `{ fotos }` en el orden nuevo                      |
+| Catálogo · Servicios      | `DELETE ./fotos/{{idFoto}}`                                      | 200 `{ fotos: [] }`                                    |
+| Catálogo · Servicios      | `GET {{urlFoto}}` tras borrarla                                  | 404 (el archivo ya no existe)                          |
+| Catálogo · Servicios      | `PATCH ./servicios/{{idServicio}}` `{ activo: false }`           | 200 con `activo = false`                               |
+| Catálogo · Servicios      | `POST ./servicios` con `tokenCliente`                            | 403 `PROHIBIDO`                                        |
 | Errores                   | `GET {{baseUrl}}/no-existe`                                      | 404 `RUTA_NO_ENCONTRADA`                               |
 | Errores                   | `POST {{baseUrl}}/health` con JSON incompleto                    | 400 `JSON_INVALIDO`                                    |
 | Errores                   | `POST {{baseUrl}}/health` con más de 1 MB                        | 413 `CUERPO_DEMASIADO_GRANDE`                          |
 | Errores                   | `POST {{baseUrl}}/health` con `charset=latin1`                   | 415 `SOLICITUD_INVALIDA`                               |
 
 Cada petición comprueba el código HTTP y la forma del cuerpo. A nivel de colección se comprueba en
-**todas** las respuestas que el `Content-Type` es JSON, que están las cabeceras de seguridad
+**todas** las respuestas que el `Content-Type` es JSON (salvo las imágenes de `/uploads`), que están las cabeceras de seguridad
 (`X-Content-Type-Options: nosniff`, sin `X-Powered-By`) y, en los errores, la forma
-`{ "error": { "codigo", "mensaje" } }` sin pilas de error. En total: **33 peticiones y 169 aserciones**.
+`{ "error": { "codigo", "mensaje" } }` sin pilas de error. En total: **46 peticiones y 217 aserciones**.
 
 Variables de colección que rellenan los scripts: `emailCliente` (generado en cada ejecución como
 `cliente+<marca de tiempo>@newman.creafacil.test`, el dominio reservado para los datos de prueba; ver
@@ -60,6 +73,18 @@ Variables de colección que rellenan los scripts: `emailCliente` (generado en ca
 La carpeta **Catálogo · Administración** añade `marcaCatalogo` (marca de tiempo de la ejecución),
 `nombreCategoria`, `nombreCategoriaDuplicado`, `idCategoria`, `nombreMaterial` e `idMaterial`. Los
 nombres empiezan por el prefijo reservado `[newman] ` para que la limpieza los borre.
+La carpeta **Catálogo · Servicios** añade `nombreServicio`, `idServicio`, `idFoto` y `urlFoto`, y usa
+`idCategoria` e `idMaterial` de la carpeta anterior.
+
+### Archivos de las subidas (`postman/fixtures/`)
+
+- `foto-prueba.png`: PNG real de 16×16 (color coral) para «Subir una foto PNG».
+- `no-es-imagen.png`: un texto renombrado a `.png`, que la API debe rechazar.
+
+En la colección, el `src` de esos archivos es relativo a la raíz del repositorio. `npm run test:postman` y
+`npm run test:postman:ci` pasan `--working-dir` con esa raíz para que newman los encuentre. **En la app de
+Postman**, abre la petición, ve a **Body → form-data** y, en la fila `foto` (tipo **File**), pulsa
+**Select files** y elige una imagen de tu PC (o estos archivos).
 
 Las carpetas **Permisos** y **Catálogo · Administración** reutilizan `tokenCliente` y `tokenAdmin` de **Autenticación**: si la ejecutas sola,
 ejecuta antes «Inicio de sesión del cliente» y «Inicio de sesión de la administradora».
@@ -93,7 +118,7 @@ El cuerpo de más de 1 MB lo genera el _pre-request script_ de «Cuerpo demasiad
    el **Current value** de `adminPassword` (ver arriba).
 4. En **Collections**, abre «CreaFácil API» y pulsa **Run** (o clic derecho → _Run collection_)
    y después **Run CreaFácil API**.
-5. Deberías ver las 33 peticiones en verde y 169 pruebas superadas (_Passed_). También puedes abrir una
+5. Deberías ver las 46 peticiones en verde y 217 pruebas superadas (_Passed_). También puedes abrir una
    petición, pulsar **Send** y ver sus resultados en la pestaña **Test Results** de la respuesta.
 
 ## Ejecutarla desde la terminal con newman
@@ -115,7 +140,8 @@ con `npm run db:limpiar-pruebas`.
 ## Limpieza de los datos de prueba
 
 Cada ejecución registra **un cliente** con un correo del dominio reservado `@newman.creafacil.test` y
-crea **una categoría y un material** con el prefijo reservado `[newman] `.
+crea **una categoría, un material y un servicio** (con una foto, que la propia colección borra) con el
+prefijo reservado `[newman] `. La limpieza borra también las fotos de esos servicios (registro y archivo).
 Para que no se acumulen en tu base de datos de desarrollo:
 
 - `npm run test:postman` ejecuta `npm run db:limpiar-pruebas` **al terminar**, tanto si newman pasa como si
@@ -126,11 +152,13 @@ Para que no se acumulen en tu base de datos de desarrollo:
   Limpieza de datos de prueba · base de datos: creafacil en localhost:5432
   Clientes de prueba encontrados: 1 (newman: 1, antiguos: 0)
     - cliente+1763400000000@newman.creafacil.test
+  Servicios de prueba encontrados: 1
+    - [newman] Servicio 1763400000000
   Categorías de prueba encontradas: 1
     - [newman] Categoría 1763400000000
   Materiales de prueba encontrados: 1
     - [newman] Material 1763400000000
-  Borrados: 1 usuarios, 0 cotizaciones, 0 solicitudes, 0 pedidos, 0 cambios de estado, 1 categorías y 1 materiales.
+  Borrados: 1 usuarios, 0 cotizaciones, 0 solicitudes, 0 pedidos, 0 cambios de estado, 1 servicios, 0 fotos (0 archivos), 1 categorías y 1 materiales.
   ```
 
 - Si ejecutas la colección desde la **app de Postman**, los clientes, categorías y materiales de prueba se quedan: bórralos a mano con

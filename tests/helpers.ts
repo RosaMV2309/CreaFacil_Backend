@@ -2,6 +2,7 @@ import express, { type Express, type Router } from 'express';
 
 import { crearApp } from '../src/app.js';
 import { cargarEnv, type Env } from '../src/config/env.js';
+import type { AlmacenamientoArchivos } from '../src/shared/almacenamiento/almacenamiento.js';
 import { crearClientePrisma, type PrismaClient } from '../src/shared/database/prisma.js';
 import { manejador404, manejadorErrores } from '../src/shared/errors/index.js';
 
@@ -25,7 +26,33 @@ export function crearPrismaSinBaseDatos(): PrismaClient {
 
 /** App real para pruebas que no tocan la base de datos (404, errores, raíz de la API…). */
 export function crearAppSinBaseDatos(): Express {
-  return crearApp(envDePrueba, { prisma: crearPrismaSinBaseDatos() });
+  return crearApp(envDePrueba, {
+    prisma: crearPrismaSinBaseDatos(),
+    almacenamiento: crearAlmacenamientoMemoria(),
+  });
+}
+
+/** Almacenamiento EN MEMORIA para las pruebas (la otra implementación de la interfaz). */
+export interface AlmacenamientoMemoria extends AlmacenamientoArchivos {
+  readonly archivos: Map<string, Buffer>;
+}
+
+export function crearAlmacenamientoMemoria(
+  urlBase = 'http://archivos.test',
+): AlmacenamientoMemoria {
+  const archivos = new Map<string, Buffer>();
+  return {
+    archivos,
+    guardar: ({ clave, contenido }) => {
+      archivos.set(clave, contenido);
+      return Promise.resolve();
+    },
+    eliminar: (clave) => {
+      archivos.delete(clave);
+      return Promise.resolve();
+    },
+    urlPublica: (clave) => `${urlBase}/${clave}`,
+  };
 }
 
 /**
