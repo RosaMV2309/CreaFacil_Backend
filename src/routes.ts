@@ -5,6 +5,7 @@ import { NOMBRE_API, VERSION_API } from './config/app-info.js';
 import type { Env } from './config/env.js';
 import { crearAdminRouter } from './modules/admin/admin.routes.js';
 import { crearAuthRouter } from './modules/auth/auth.routes.js';
+import { crearCatalogoRouter } from './modules/catalogo/catalogo.routes.js';
 import { crearHealthRouter } from './modules/health/health.routes.js';
 import type { AlmacenamientoArchivos } from './shared/almacenamiento/almacenamiento.js';
 import { crearLimitadorLogin } from './shared/middlewares/limite-intentos.js';
@@ -44,6 +45,8 @@ export function crearRouterApi(
         }),
     }),
   );
+  // Catálogo PÚBLICO (RF-03, RF-04): sin sesión y sin datos internos. NO va bajo /admin.
+  router.use('/catalogo', crearCatalogoRouter(dependencias.prisma, dependencias.almacenamiento));
   // Rutas de la administradora: el grupo aplica auth + requireRole('ADMIN') a TODO /admin
   // (RF-02, RNF-03). Las secciones nuevas se registran en MODULOS_ADMIN, nunca aquí.
   router.use(
