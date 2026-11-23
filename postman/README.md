@@ -12,59 +12,68 @@ autenticación y errores» (RNF-02, RNF-07).
 
 ## Contenido
 
-| Carpeta                   | Petición                                                         | Respuesta esperada                                     |
-| ------------------------- | ---------------------------------------------------------------- | ------------------------------------------------------ |
-| Salud                     | `GET {{baseUrl}}`                                                | 200 con `nombre` y `version`                           |
-| Salud                     | `GET {{baseUrl}}/health`                                         | 200 con `estado: "ok"` y `baseDatos: "ok"`             |
-| Autenticación             | `POST {{baseUrl}}/auth/registro` (correo único)                  | 201 con `{ token, tipo, expiraEn, usuario }`           |
-| Autenticación             | `POST {{baseUrl}}/auth/registro` (mismo correo)                  | 409 `CONFLICTO`                                        |
-| Autenticación             | `POST {{baseUrl}}/auth/registro` (datos inválidos)               | 400 `VALIDACION` (correo, contraseña y `rol`)          |
-| Autenticación             | `POST {{baseUrl}}/auth/login` (cliente)                          | 200; guarda el token en `tokenCliente`                 |
-| Autenticación             | `POST {{baseUrl}}/auth/login` (contraseña incorrecta)            | 401 `CREDENCIALES_INVALIDAS`                           |
-| Autenticación             | `GET {{baseUrl}}/auth/perfil` con Bearer                         | 200 con `{ usuario }`                                  |
-| Autenticación             | `GET {{baseUrl}}/auth/perfil` sin token                          | 401 `NO_AUTENTICADO`                                   |
-| Autenticación             | `GET {{baseUrl}}/auth/perfil` con token alterado                 | 401 `TOKEN_INVALIDO`                                   |
-| Autenticación             | `POST {{baseUrl}}/auth/login` (administradora)                   | 200 con `usuario.rol = "ADMIN"`                        |
-| Permisos                  | `PATCH {{baseUrl}}/auth/perfil` con `tokenCliente`               | 200 con `{ usuario }` (nombre y teléfono)              |
-| Permisos                  | `PATCH {{baseUrl}}/auth/perfil` con `rol`                        | 400 `VALIDACION` (detalle en `rol`)                    |
-| Permisos                  | `GET {{baseUrl}}/admin/clientes` sin token                       | 401 `NO_AUTENTICADO`                                   |
-| Permisos                  | `GET {{baseUrl}}/admin/clientes` con `tokenCliente`              | 403 `PROHIBIDO`                                        |
-| Permisos                  | `GET {{baseUrl}}/admin/clientes?q=` con `tokenAdmin`             | 200 con `{ datos, paginacion }`                        |
-| Catálogo · Administración | `POST {{baseUrl}}/admin/categorias` con `tokenAdmin`             | 201 con `{ categoria }`; guarda `idCategoria`          |
-| Catálogo · Administración | `POST {{baseUrl}}/admin/categorias` (mismo nombre en mayúsculas) | 409 `CONFLICTO`                                        |
-| Catálogo · Administración | `GET {{baseUrl}}/admin/categorias?q=`                            | 200 `{ datos }` con `serviciosActivos`                 |
-| Catálogo · Administración | `PATCH {{baseUrl}}/admin/categorias/{{idCategoria}}`             | 200 con `descripcion` y `orden` nuevos                 |
-| Catálogo · Administración | `PATCH …/categorias/{{idCategoria}}` `{ activa: false }`         | 200 con `activa = false`                               |
-| Catálogo · Administración | `DELETE …/categorias/{{idCategoria}}`                            | 404 `RUTA_NO_ENCONTRADA` (solo se desactiva)           |
-| Catálogo · Administración | `GET {{baseUrl}}/admin/categorias` sin token                     | 401 `NO_AUTENTICADO`                                   |
-| Catálogo · Administración | `POST {{baseUrl}}/admin/materiales` (`precioUnitario: 2.5`)      | 201 con `precioUnitario = "2.50"`; guarda `idMaterial` |
-| Catálogo · Administración | `POST {{baseUrl}}/admin/materiales` (mismo nombre)               | 409 `CONFLICTO`                                        |
-| Catálogo · Administración | `POST {{baseUrl}}/admin/materiales` (`precioUnitario: 1.234`)    | 400 `VALIDACION` en `precioUnitario`                   |
-| Catálogo · Administración | `PATCH …/materiales/{{idMaterial}}` (`"0.3"`)                    | 200 con `precioUnitario = "0.30"`                      |
-| Catálogo · Administración | `GET {{baseUrl}}/admin/materiales?q=&pagina=1&porPagina=5`       | 200 `{ datos, paginacion }`                            |
-| Catálogo · Administración | `POST {{baseUrl}}/admin/materiales` con `tokenCliente`           | 403 `PROHIBIDO`                                        |
-| Catálogo · Servicios      | `POST {{baseUrl}}/admin/servicios` con `materialIds`             | 201 `{ servicio }`; `precioBaseReferencial = "35.50"`  |
-| Catálogo · Servicios      | `POST {{baseUrl}}/admin/servicios` (mismo nombre)                | 409 `CONFLICTO`                                        |
-| Catálogo · Servicios      | `GET ./servicios?q=&categoriaId=`                                | 200 resumen paginado                                   |
-| Catálogo · Servicios      | `GET ./servicios/{{idServicio}}`                                 | 200 ficha completa                                     |
-| Catálogo · Servicios      | `PATCH ./servicios/{{idServicio}}` (precio y `materialIds: []`)  | 200 con `"40.00"` y sin materiales                     |
-| Catálogo · Servicios      | `POST ./servicios/{{idServicio}}/fotos` (form-data `foto`)       | 201 `{ foto }` con URL absoluta aleatoria              |
-| Catálogo · Servicios      | `GET {{urlFoto}}` sin token                                      | 200 `image/png`, CORP `cross-origin`                   |
-| Catálogo · Servicios      | `POST ./fotos` con un texto renombrado a `.png`                  | 400 `VALIDACION` en `foto`                             |
-| Catálogo · Servicios      | `PATCH ./fotos/orden`                                            | 200 `{ fotos }` en el orden nuevo                      |
-| Catálogo · Servicios      | `DELETE ./fotos/{{idFoto}}`                                      | 200 `{ fotos: [] }`                                    |
-| Catálogo · Servicios      | `GET {{urlFoto}}` tras borrarla                                  | 404 (el archivo ya no existe)                          |
-| Catálogo · Servicios      | `PATCH ./servicios/{{idServicio}}` `{ activo: false }`           | 200 con `activo = false`                               |
-| Catálogo · Servicios      | `POST ./servicios` con `tokenCliente`                            | 403 `PROHIBIDO`                                        |
-| Errores                   | `GET {{baseUrl}}/no-existe`                                      | 404 `RUTA_NO_ENCONTRADA`                               |
-| Errores                   | `POST {{baseUrl}}/health` con JSON incompleto                    | 400 `JSON_INVALIDO`                                    |
-| Errores                   | `POST {{baseUrl}}/health` con más de 1 MB                        | 413 `CUERPO_DEMASIADO_GRANDE`                          |
-| Errores                   | `POST {{baseUrl}}/health` con `charset=latin1`                   | 415 `SOLICITUD_INVALIDA`                               |
+| Carpeta                   | Petición                                                                      | Respuesta esperada                                     |
+| ------------------------- | ----------------------------------------------------------------------------- | ------------------------------------------------------ |
+| Salud                     | `GET {{baseUrl}}`                                                             | 200 con `nombre` y `version`                           |
+| Salud                     | `GET {{baseUrl}}/health`                                                      | 200 con `estado: "ok"` y `baseDatos: "ok"`             |
+| Autenticación             | `POST {{baseUrl}}/auth/registro` (correo único)                               | 201 con `{ token, tipo, expiraEn, usuario }`           |
+| Autenticación             | `POST {{baseUrl}}/auth/registro` (mismo correo)                               | 409 `CONFLICTO`                                        |
+| Autenticación             | `POST {{baseUrl}}/auth/registro` (datos inválidos)                            | 400 `VALIDACION` (correo, contraseña y `rol`)          |
+| Autenticación             | `POST {{baseUrl}}/auth/login` (cliente)                                       | 200; guarda el token en `tokenCliente`                 |
+| Autenticación             | `POST {{baseUrl}}/auth/login` (contraseña incorrecta)                         | 401 `CREDENCIALES_INVALIDAS`                           |
+| Autenticación             | `GET {{baseUrl}}/auth/perfil` con Bearer                                      | 200 con `{ usuario }`                                  |
+| Autenticación             | `GET {{baseUrl}}/auth/perfil` sin token                                       | 401 `NO_AUTENTICADO`                                   |
+| Autenticación             | `GET {{baseUrl}}/auth/perfil` con token alterado                              | 401 `TOKEN_INVALIDO`                                   |
+| Autenticación             | `POST {{baseUrl}}/auth/login` (administradora)                                | 200 con `usuario.rol = "ADMIN"`                        |
+| Permisos                  | `PATCH {{baseUrl}}/auth/perfil` con `tokenCliente`                            | 200 con `{ usuario }` (nombre y teléfono)              |
+| Permisos                  | `PATCH {{baseUrl}}/auth/perfil` con `rol`                                     | 400 `VALIDACION` (detalle en `rol`)                    |
+| Permisos                  | `GET {{baseUrl}}/admin/clientes` sin token                                    | 401 `NO_AUTENTICADO`                                   |
+| Permisos                  | `GET {{baseUrl}}/admin/clientes` con `tokenCliente`                           | 403 `PROHIBIDO`                                        |
+| Permisos                  | `GET {{baseUrl}}/admin/clientes?q=` con `tokenAdmin`                          | 200 con `{ datos, paginacion }`                        |
+| Catálogo · Administración | `POST {{baseUrl}}/admin/categorias` con `tokenAdmin`                          | 201 con `{ categoria }`; guarda `idCategoria`          |
+| Catálogo · Administración | `POST {{baseUrl}}/admin/categorias` (mismo nombre en mayúsculas)              | 409 `CONFLICTO`                                        |
+| Catálogo · Administración | `GET {{baseUrl}}/admin/categorias?q=`                                         | 200 `{ datos }` con `serviciosActivos`                 |
+| Catálogo · Administración | `PATCH {{baseUrl}}/admin/categorias/{{idCategoria}}`                          | 200 con `descripcion` y `orden` nuevos                 |
+| Catálogo · Administración | `PATCH …/categorias/{{idCategoria}}` `{ activa: false }`                      | 200 con `activa = false`                               |
+| Catálogo · Administración | `DELETE …/categorias/{{idCategoria}}`                                         | 404 `RUTA_NO_ENCONTRADA` (solo se desactiva)           |
+| Catálogo · Administración | `GET {{baseUrl}}/admin/categorias` sin token                                  | 401 `NO_AUTENTICADO`                                   |
+| Catálogo · Administración | `POST {{baseUrl}}/admin/materiales` (`precioUnitario: 2.5`)                   | 201 con `precioUnitario = "2.50"`; guarda `idMaterial` |
+| Catálogo · Administración | `POST {{baseUrl}}/admin/materiales` (mismo nombre)                            | 409 `CONFLICTO`                                        |
+| Catálogo · Administración | `POST {{baseUrl}}/admin/materiales` (`precioUnitario: 1.234`)                 | 400 `VALIDACION` en `precioUnitario`                   |
+| Catálogo · Administración | `PATCH …/materiales/{{idMaterial}}` (`"0.3"`)                                 | 200 con `precioUnitario = "0.30"`                      |
+| Catálogo · Administración | `GET {{baseUrl}}/admin/materiales?q=&pagina=1&porPagina=5`                    | 200 `{ datos, paginacion }`                            |
+| Catálogo · Administración | `POST {{baseUrl}}/admin/materiales` con `tokenCliente`                        | 403 `PROHIBIDO`                                        |
+| Catálogo · Servicios      | `POST {{baseUrl}}/admin/servicios` con `materialIds`                          | 201 `{ servicio }`; `precioBaseReferencial = "35.50"`  |
+| Catálogo · Servicios      | `POST {{baseUrl}}/admin/servicios` (mismo nombre)                             | 409 `CONFLICTO`                                        |
+| Catálogo · Servicios      | `GET ./servicios?q=&categoriaId=`                                             | 200 resumen paginado                                   |
+| Catálogo · Servicios      | `GET ./servicios/{{idServicio}}`                                              | 200 ficha completa                                     |
+| Catálogo · Servicios      | `PATCH ./servicios/{{idServicio}}` (precio y `materialIds: []`)               | 200 con `"40.00"` y sin materiales                     |
+| Catálogo · Servicios      | `POST ./servicios/{{idServicio}}/fotos` (form-data `foto`)                    | 201 `{ foto }` con URL absoluta aleatoria              |
+| Catálogo · Servicios      | `GET {{urlFoto}}` sin token                                                   | 200 `image/png`, CORP `cross-origin`                   |
+| Catálogo · Servicios      | `POST ./fotos` con un texto renombrado a `.png`                               | 400 `VALIDACION` en `foto`                             |
+| Catálogo · Servicios      | `PATCH ./fotos/orden`                                                         | 200 `{ fotos }` en el orden nuevo                      |
+| Catálogo · Servicios      | `DELETE ./fotos/{{idFoto}}`                                                   | 200 `{ fotos: [] }`                                    |
+| Catálogo · Servicios      | `GET {{urlFoto}}` tras borrarla                                               | 404 (el archivo ya no existe)                          |
+| Catálogo · Servicios      | `PATCH ./servicios/{{idServicio}}` `{ activo: false }`                        | 200 con `activo = false`                               |
+| Catálogo · Servicios      | `POST ./servicios` con `tokenCliente`                                         | 403 `PROHIBIDO`                                        |
+| Catálogo · Público        | `POST ./admin/categorias` y `POST ./admin/servicios` (preparar, `tokenAdmin`) | 201; guarda `idCategoriaPublica` e `idServicioPublico` |
+| Catálogo · Público        | `POST ./admin/servicios/{{idServicioPublico}}/fotos` (preparar)               | 201; guarda `urlFotoPublica`                           |
+| Catálogo · Público        | `GET {{baseUrl}}/catalogo?q=` **sin Authorization**                           | 200 con el servicio, lista blanca y `Cache-Control`    |
+| Catálogo · Público        | `GET {{baseUrl}}/catalogo?categoriaId=` sin Authorization                     | 200 solo con esa categoría                             |
+| Catálogo · Público        | `GET {{baseUrl}}/catalogo/servicios/{{idServicioPublico}}`                    | 200 con claves exactas y sin precios de materiales     |
+| Catálogo · Público        | `GET ./catalogo/servicios/no-es-un-uuid`                                      | 400 `VALIDACION` en `id`                               |
+| Catálogo · Público        | `PATCH ./admin/categorias/…` `{ activa: false }` y luego ficha y catálogo     | 200; ficha 404 y el servicio desaparece                |
+| Catálogo · Público        | Reactivar la categoría y `PATCH ./admin/servicios/…` `{ activo: false }`      | 200 (con `pm.sendRequest`)                             |
+| Catálogo · Público        | Ficha y catálogo del servicio desactivado                                     | 404 `NO_ENCONTRADO` (mismo mensaje) y ya no aparece    |
+| Errores                   | `GET {{baseUrl}}/no-existe`                                                   | 404 `RUTA_NO_ENCONTRADA`                               |
+| Errores                   | `POST {{baseUrl}}/health` con JSON incompleto                                 | 400 `JSON_INVALIDO`                                    |
+| Errores                   | `POST {{baseUrl}}/health` con más de 1 MB                                     | 413 `CUERPO_DEMASIADO_GRANDE`                          |
+| Errores                   | `POST {{baseUrl}}/health` con `charset=latin1`                                | 415 `SOLICITUD_INVALIDA`                               |
 
 Cada petición comprueba el código HTTP y la forma del cuerpo. A nivel de colección se comprueba en
 **todas** las respuestas que el `Content-Type` es JSON (salvo las imágenes de `/uploads`), que están las cabeceras de seguridad
 (`X-Content-Type-Options: nosniff`, sin `X-Powered-By`) y, en los errores, la forma
-`{ "error": { "codigo", "mensaje" } }` sin pilas de error. En total: **46 peticiones y 217 aserciones**.
+`{ "error": { "codigo", "mensaje" } }` sin pilas de error. En total: **60 peticiones y 272 aserciones**.
 
 Variables de colección que rellenan los scripts: `emailCliente` (generado en cada ejecución como
 `cliente+<marca de tiempo>@newman.creafacil.test`, el dominio reservado para los datos de prueba; ver
@@ -75,6 +84,9 @@ La carpeta **Catálogo · Administración** añade `marcaCatalogo` (marca de tie
 nombres empiezan por el prefijo reservado `[newman] ` para que la limpieza los borre.
 La carpeta **Catálogo · Servicios** añade `nombreServicio`, `idServicio`, `idFoto` y `urlFoto`, y usa
 `idCategoria` e `idMaterial` de la carpeta anterior.
+La carpeta **Catálogo · Público** (sin Authorization en las peticiones del catálogo) añade `nombreCategoriaPublica`,
+`idCategoriaPublica`, `nombreServicioPublico`, `idServicioPublico` y `urlFotoPublica`; usa `idMaterial` y
+`nombreMaterial` para comprobar que la ficha muestra el nombre del material y nunca su id ni su precio.
 
 ### Archivos de las subidas (`postman/fixtures/`)
 
@@ -118,7 +130,7 @@ El cuerpo de más de 1 MB lo genera el _pre-request script_ de «Cuerpo demasiad
    el **Current value** de `adminPassword` (ver arriba).
 4. En **Collections**, abre «CreaFácil API» y pulsa **Run** (o clic derecho → _Run collection_)
    y después **Run CreaFácil API**.
-5. Deberías ver las 46 peticiones en verde y 217 pruebas superadas (_Passed_). También puedes abrir una
+5. Deberías ver las 60 peticiones en verde y 272 pruebas superadas (_Passed_). También puedes abrir una
    petición, pulsar **Send** y ver sus resultados en la pestaña **Test Results** de la respuesta.
 
 ## Ejecutarla desde la terminal con newman
@@ -140,7 +152,7 @@ con `npm run db:limpiar-pruebas`.
 ## Limpieza de los datos de prueba
 
 Cada ejecución registra **un cliente** con un correo del dominio reservado `@newman.creafacil.test` y
-crea **una categoría, un material y un servicio** (con una foto, que la propia colección borra) con el
+crea **dos categorías, un material y dos servicios** (con fotos; la del servicio público la borra la limpieza) con el
 prefijo reservado `[newman] `. La limpieza borra también las fotos de esos servicios (registro y archivo).
 Para que no se acumulen en tu base de datos de desarrollo:
 
