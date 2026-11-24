@@ -2570,6 +2570,696 @@
       ]
     },
     {
+      "name": "Catálogo · Público",
+      "description": "Catálogo PÚBLICO (RF-03, RF-04, RF-05, RN-01): las peticiones del catálogo van SIN Authorization. Las de «Preparar» usan la ruta de la administradora para crear y cambiar los datos [newman].",
+      "auth": {
+        "type": "noauth"
+      },
+      "item": [
+        {
+          "name": "Preparar: crear una categoría (201)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Prefijo «[newman] »: `npm run db:limpiar-pruebas` borra estos datos al final.",
+                  "const marca = pm.collectionVariables.get('marcaCatalogo') || Date.now().toString();",
+                  "pm.collectionVariables.set('nombreCategoriaPublica', '[newman] Pública ' + marca);",
+                  "pm.collectionVariables.set('nombreServicioPublico', '[newman] Servicio público ' + marca);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 201', function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "pm.collectionVariables.set('idCategoriaPublica', pm.response.json().categoria.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenAdmin}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nombre\": \"{{nombreCategoriaPublica}}\",\n  \"descripcion\": \"Categoría pública de Postman\",\n  \"orden\": 0\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/admin/categorias",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "categorias"]
+            },
+            "description": "Prepara los datos con la ruta de la administradora (Bearer tokenAdmin). Guarda `idCategoriaPublica`."
+          },
+          "response": []
+        },
+        {
+          "name": "Preparar: crear un servicio con precio y material (201)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 201', function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "pm.collectionVariables.set('idServicioPublico', pm.response.json().servicio.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenAdmin}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"categoriaId\": \"{{idCategoriaPublica}}\",\n  \"nombre\": \"{{nombreServicioPublico}}\",\n  \"descripcion\": \"Servicio público de Postman\",\n  \"dimensionesOrientativas\": \"60 x 40 cm\",\n  \"observaciones\": \"Incluye boceto previo\",\n  \"precioBaseReferencial\": 120.5,\n  \"materialIds\": [\n    \"{{idMaterial}}\"\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/admin/servicios",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "servicios"]
+            },
+            "description": "Servicio [newman] activo con `precioBaseReferencial` 120.5 y el material de la carpeta «Catálogo · Administración». Guarda `idServicioPublico`."
+          },
+          "response": []
+        },
+        {
+          "name": "Preparar: subir una foto (201)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 201', function () {",
+                  "    pm.response.to.have.status(201);",
+                  "});",
+                  "pm.collectionVariables.set('urlFotoPublica', pm.response.json().foto.url);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenAdmin}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "foto",
+                  "type": "file",
+                  "src": "postman/fixtures/foto-prueba.png",
+                  "description": "Imagen JPG, PNG o WebP (en Postman: elige un archivo de tu PC)."
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/admin/servicios/{{idServicioPublico}}/fotos",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "servicios", "{{idServicioPublico}}", "fotos"]
+            },
+            "description": "Foto de portada del servicio público. La limpieza borra el registro y el archivo."
+          },
+          "response": []
+        },
+        {
+          "name": "Catálogo sin sesión (200)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 200 sin Authorization', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "function servicioEnCatalogo(cuerpo) {",
+                  "    const id = pm.collectionVariables.get('idServicioPublico');",
+                  "    return cuerpo.categorias.flatMap(function (c) { return c.servicios; }).find(function (s) { return s.id === id; });",
+                  "}",
+                  "const cuerpo = pm.response.json();",
+                  "pm.test('caché pública corta', function () {",
+                  "    pm.expect(pm.response.headers.get('Cache-Control')).to.eql('public, max-age=60');",
+                  "});",
+                  "pm.test('contiene el servicio [newman] con su portada y precio referencial (RN-01)', function () {",
+                  "    const s = servicioEnCatalogo(cuerpo);",
+                  "    pm.expect(s).to.be.an('object');",
+                  "    pm.expect(s.portadaUrl).to.eql(pm.collectionVariables.get('urlFotoPublica'));",
+                  "    pm.expect(s.precioReferencial).to.eql({ desde: '120.50', esReferencial: true });",
+                  "});",
+                  "pm.test('lista blanca: solo los campos públicos', function () {",
+                  "    pm.expect(Object.keys(cuerpo)).to.eql(['categorias']);",
+                  "    cuerpo.categorias.forEach(function (c) {",
+                  "        pm.expect(Object.keys(c).sort()).to.eql(['descripcion', 'id', 'nombre', 'servicios']);",
+                  "        pm.expect(c.servicios).to.not.be.empty;",
+                  "        c.servicios.forEach(function (s) {",
+                  "            pm.expect(Object.keys(s).sort()).to.eql(['id', 'nombre', 'portadaUrl', 'precioReferencial']);",
+                  "            if (s.precioReferencial !== null) { pm.expect(Object.keys(s.precioReferencial).sort()).to.eql(['desde', 'esReferencial']); }",
+                  "        });",
+                  "    });",
+                  "    pm.expect(pm.response.text()).to.not.match(/\"(activo|activa|precioUnitario|precioBaseReferencial|clave|tipoMime|tamanoBytes|creadoEn|orden)\"/);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/catalogo?q={{marcaCatalogo}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["catalogo"],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "{{marcaCatalogo}}"
+                }
+              ]
+            },
+            "description": "GET /api/v1/catalogo?q=&categoriaId= (RF-03), SIN sesión. `{ categorias: [{ id, nombre, descripcion, servicios: [{ id, nombre, portadaUrl, precioReferencial }] }] }`. Solo servicios activos de categorías activas; las categorías sin servicios visibles no aparecen."
+          },
+          "response": []
+        },
+        {
+          "name": "Catálogo filtrado por categoría (200)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('solo devuelve esa categoría con su servicio', function () {",
+                  "    const cuerpo = pm.response.json();",
+                  "    pm.expect(cuerpo.categorias.map(function (c) { return c.id; })).to.eql([pm.collectionVariables.get('idCategoriaPublica')]);",
+                  "    pm.expect(cuerpo.categorias[0].servicios.map(function (s) { return s.id; })).to.eql([pm.collectionVariables.get('idServicioPublico')]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/catalogo?categoriaId={{idCategoriaPublica}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["catalogo"],
+              "query": [
+                {
+                  "key": "categoriaId",
+                  "value": "{{idCategoriaPublica}}"
+                }
+              ]
+            },
+            "description": "`?categoriaId=` limita el catálogo a una categoría (vacío si está inactiva o no tiene servicios visibles)."
+          },
+          "response": []
+        },
+        {
+          "name": "Ficha pública sin sesión (200)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "const servicio = pm.response.json().servicio;",
+                  "pm.test('lista blanca: claves exactas de la ficha', function () {",
+                  "    pm.expect(Object.keys(pm.response.json())).to.eql(['servicio']);",
+                  "    pm.expect(Object.keys(servicio).sort()).to.eql(['categoria', 'descripcion', 'dimensionesOrientativas', 'fotos', 'id', 'materialesHabituales', 'nombre', 'observaciones', 'precioReferencial']);",
+                  "    pm.expect(Object.keys(servicio.categoria).sort()).to.eql(['id', 'nombre']);",
+                  "    servicio.fotos.forEach(function (f) { pm.expect(Object.keys(f)).to.eql(['url']); });",
+                  "});",
+                  "pm.test('datos registrados: categoría, foto de portada, materiales por nombre y precio referencial', function () {",
+                  "    pm.expect(servicio.nombre).to.eql(pm.collectionVariables.get('nombreServicioPublico'));",
+                  "    pm.expect(servicio.categoria.id).to.eql(pm.collectionVariables.get('idCategoriaPublica'));",
+                  "    pm.expect(servicio.dimensionesOrientativas).to.eql('60 x 40 cm');",
+                  "    pm.expect(servicio.fotos).to.eql([{ url: pm.collectionVariables.get('urlFotoPublica') }]);",
+                  "    pm.expect(servicio.materialesHabituales).to.eql([pm.collectionVariables.get('nombreMaterial')]);",
+                  "    pm.expect(servicio.precioReferencial).to.eql({ desde: '120.50', esReferencial: true });",
+                  "});",
+                  "pm.test('sin precios ni ids de materiales ni datos internos', function () {",
+                  "    const texto = pm.response.text();",
+                  "    pm.expect(texto).to.not.include(pm.collectionVariables.get('idMaterial'));",
+                  "    pm.expect(texto).to.not.match(/\"(precioUnitario|unidad|activo|activa|clave|tipoMime|tamanoBytes|horasManoObraReferencia|creadoEn)\"/);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/catalogo/servicios/{{idServicioPublico}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["catalogo", "servicios", "{{idServicioPublico}}"]
+            },
+            "description": "GET /api/v1/catalogo/servicios/:id (RF-04), SIN sesión. Devuelve solo la lista blanca de campos públicos; los materiales van como nombres, nunca con precio (RF-08)."
+          },
+          "response": []
+        },
+        {
+          "name": "Ficha con un id inválido (400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 400', function () {",
+                  "    pm.response.to.have.status(400);",
+                  "});",
+                  "pm.test('VALIDACION en el id (params)', function () {",
+                  "    const error = pm.response.json().error;",
+                  "    pm.expect(error.codigo).to.eql('VALIDACION');",
+                  "    pm.expect(error.detalles[0]).to.include({ campo: 'id', ubicacion: 'params' });",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/catalogo/servicios/no-es-un-uuid",
+              "host": ["{{baseUrl}}"],
+              "path": ["catalogo", "servicios", "no-es-un-uuid"]
+            },
+            "description": "Un id que no es UUID → 400 VALIDACION."
+          },
+          "response": []
+        },
+        {
+          "name": "Preparar: desactivar la categoría (200)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenAdmin}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"activa\": false\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/admin/categorias/{{idCategoriaPublica}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "categorias", "{{idCategoriaPublica}}"]
+            },
+            "description": "Desactivar una categoría oculta sus servicios del catálogo sin desactivarlos."
+          },
+          "response": []
+        },
+        {
+          "name": "Ficha con la categoría desactivada (404)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 404', function () {",
+                  "    pm.response.to.have.status(404);",
+                  "});",
+                  "pm.test('NO_ENCONTRADO con el mismo mensaje en todos los casos (RF-05)', function () {",
+                  "    pm.expect(pm.response.json()).to.eql({ error: { codigo: 'NO_ENCONTRADO', mensaje: 'El servicio no existe o no está disponible.' } });",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/catalogo/servicios/{{idServicioPublico}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["catalogo", "servicios", "{{idServicioPublico}}"]
+            },
+            "description": "El servicio sigue activo, pero su categoría no: no está disponible (RF-05)."
+          },
+          "response": []
+        },
+        {
+          "name": "Catálogo sin la categoría desactivada (200)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "function servicioEnCatalogo(cuerpo) {",
+                  "    const id = pm.collectionVariables.get('idServicioPublico');",
+                  "    return cuerpo.categorias.flatMap(function (c) { return c.servicios; }).find(function (s) { return s.id === id; });",
+                  "}",
+                  "pm.test('el servicio y su categoría ya no aparecen', function () {",
+                  "    const cuerpo = pm.response.json();",
+                  "    pm.expect(servicioEnCatalogo(cuerpo)).to.be.undefined;",
+                  "    pm.expect(cuerpo.categorias.map(function (c) { return c.id; })).to.not.include(pm.collectionVariables.get('idCategoriaPublica'));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/catalogo?q={{marcaCatalogo}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["catalogo"],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "{{marcaCatalogo}}"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Preparar: reactivar la categoría y desactivar el servicio (200)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "// Después desactiva el servicio (RF-05: no se borra).",
+                  "pm.sendRequest({",
+                  "    url: pm.variables.replaceIn('{{baseUrl}}/admin/servicios/{{idServicioPublico}}'),",
+                  "    method: 'PATCH',",
+                  "    header: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + pm.collectionVariables.get('tokenAdmin') },",
+                  "    body: { mode: 'raw', raw: JSON.stringify({ activo: false }) }",
+                  "}, function (err, res) {",
+                  "    pm.test('el servicio queda desactivado', function () {",
+                  "        pm.expect(err).to.eql(null);",
+                  "        pm.expect(res.code).to.eql(200);",
+                  "        pm.expect(res.json().servicio.activo).to.eql(false);",
+                  "    });",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{tokenAdmin}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"activa\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/admin/categorias/{{idCategoriaPublica}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin", "categorias", "{{idCategoriaPublica}}"]
+            },
+            "description": "Vuelve a activar la categoría y, con `pm.sendRequest`, desactiva el servicio (PATCH /admin/servicios/:id `{ activo: false }`)."
+          },
+          "response": []
+        },
+        {
+          "name": "Ficha de un servicio desactivado (404)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 404', function () {",
+                  "    pm.response.to.have.status(404);",
+                  "});",
+                  "pm.test('NO_ENCONTRADO con el mismo mensaje en todos los casos (RF-05)', function () {",
+                  "    pm.expect(pm.response.json()).to.eql({ error: { codigo: 'NO_ENCONTRADO', mensaje: 'El servicio no existe o no está disponible.' } });",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/catalogo/servicios/{{idServicioPublico}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["catalogo", "servicios", "{{idServicioPublico}}"]
+            },
+            "description": "Un servicio desactivado responde el mismo 404 que uno inexistente (RF-05)."
+          },
+          "response": []
+        },
+        {
+          "name": "Catálogo sin el servicio desactivado (200)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('responde 200', function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "function servicioEnCatalogo(cuerpo) {",
+                  "    const id = pm.collectionVariables.get('idServicioPublico');",
+                  "    return cuerpo.categorias.flatMap(function (c) { return c.servicios; }).find(function (s) { return s.id === id; });",
+                  "}",
+                  "pm.test('el servicio desactivado ya no aparece', function () {",
+                  "    pm.expect(servicioEnCatalogo(pm.response.json())).to.be.undefined;",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/catalogo?q={{marcaCatalogo}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["catalogo"],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "{{marcaCatalogo}}"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
       "name": "Errores",
       "description": "Contrato de errores de la API: siempre JSON con `{ error: { codigo, mensaje, detalles? } }` y el código HTTP correcto (RNF-02). Los 401 de autenticación están en la carpeta Autenticación; los 403 por rol llegarán en la subfase 1.2 (RF-02).",
       "item": [
@@ -2850,6 +3540,26 @@
       "key": "urlFoto",
       "value": "",
       "type": "string"
+    },
+    {
+      "key": "nombreCategoriaPublica",
+      "value": ""
+    },
+    {
+      "key": "idCategoriaPublica",
+      "value": ""
+    },
+    {
+      "key": "nombreServicioPublico",
+      "value": ""
+    },
+    {
+      "key": "idServicioPublico",
+      "value": ""
+    },
+    {
+      "key": "urlFotoPublica",
+      "value": ""
     }
   ]
 }

@@ -172,23 +172,25 @@ Las pruebas de integración leen `DATABASE_URL_TEST` de `.env.test` (ignorado po
 
 ## Endpoints
 
-| Método | Ruta                           | Autenticación  | Descripción                                  |
-| ------ | ------------------------------ | -------------- | -------------------------------------------- |
-| GET    | `/api/v1`                      | No             | Nombre y versión de la API                   |
-| GET    | `/api/v1/health`               | No             | Estado de la API y de PostgreSQL             |
-| POST   | `/api/v1/auth/registro`        | No             | Registro de clientes (RF-01)                 |
-| POST   | `/api/v1/auth/login`           | No             | Inicio de sesión (clientes y ADMIN)          |
-| GET    | `/api/v1/auth/perfil`          | Bearer         | Datos de la persona autenticada (RF-01)      |
-| PATCH  | `/api/v1/auth/perfil`          | Bearer         | Editar el propio nombre y teléfono (RF-01)   |
-| GET    | `/api/v1/admin/clientes`       | Bearer + ADMIN | Listado paginado de clientes (RF-02)         |
-| GET    | `/api/v1/admin/categorias`     | Bearer + ADMIN | Categorías con recuento de servicios (RF-22) |
-| POST   | `/api/v1/admin/categorias`     | Bearer + ADMIN | Crear una categoría (RF-22)                  |
-| GET    | `/api/v1/admin/categorias/:id` | Bearer + ADMIN | Una categoría (RF-22)                        |
-| PATCH  | `/api/v1/admin/categorias/:id` | Bearer + ADMIN | Editar, activar o desactivar (RF-22, RF-05)  |
-| GET    | `/api/v1/admin/materiales`     | Bearer + ADMIN | Materiales paginados (RF-22, RF-08)          |
-| POST   | `/api/v1/admin/materiales`     | Bearer + ADMIN | Crear un material con su precio (RF-08)      |
-| GET    | `/api/v1/admin/materiales/:id` | Bearer + ADMIN | Un material (RF-22)                          |
-| PATCH  | `/api/v1/admin/materiales/:id` | Bearer + ADMIN | Editar precio, unidad, activar o desactivar  |
+| Método | Ruta                             | Autenticación  | Descripción                                  |
+| ------ | -------------------------------- | -------------- | -------------------------------------------- |
+| GET    | `/api/v1`                        | No             | Nombre y versión de la API                   |
+| GET    | `/api/v1/health`                 | No             | Estado de la API y de PostgreSQL             |
+| POST   | `/api/v1/auth/registro`          | No             | Registro de clientes (RF-01)                 |
+| POST   | `/api/v1/auth/login`             | No             | Inicio de sesión (clientes y ADMIN)          |
+| GET    | `/api/v1/auth/perfil`            | Bearer         | Datos de la persona autenticada (RF-01)      |
+| PATCH  | `/api/v1/auth/perfil`            | Bearer         | Editar el propio nombre y teléfono (RF-01)   |
+| GET    | `/api/v1/admin/clientes`         | Bearer + ADMIN | Listado paginado de clientes (RF-02)         |
+| GET    | `/api/v1/admin/categorias`       | Bearer + ADMIN | Categorías con recuento de servicios (RF-22) |
+| POST   | `/api/v1/admin/categorias`       | Bearer + ADMIN | Crear una categoría (RF-22)                  |
+| GET    | `/api/v1/admin/categorias/:id`   | Bearer + ADMIN | Una categoría (RF-22)                        |
+| PATCH  | `/api/v1/admin/categorias/:id`   | Bearer + ADMIN | Editar, activar o desactivar (RF-22, RF-05)  |
+| GET    | `/api/v1/admin/materiales`       | Bearer + ADMIN | Materiales paginados (RF-22, RF-08)          |
+| POST   | `/api/v1/admin/materiales`       | Bearer + ADMIN | Crear un material con su precio (RF-08)      |
+| GET    | `/api/v1/admin/materiales/:id`   | Bearer + ADMIN | Un material (RF-22)                          |
+| PATCH  | `/api/v1/admin/materiales/:id`   | Bearer + ADMIN | Editar precio, unidad, activar o desactivar  |
+| GET    | `/api/v1/catalogo`               | No             | Catálogo público por categorías (RF-03)      |
+| GET    | `/api/v1/catalogo/servicios/:id` | No             | Ficha pública de un servicio (RF-04)         |
 
 `GET /api/v1/health` comprueba la base de datos con `SELECT 1` (rutas → controlador → servicio →
 repositorio). Si responde, devuelve **200**:
@@ -683,6 +685,106 @@ Cuerpo de `POST` (los mismos campos, opcionales, en `PATCH`; cuerpos estrictos):
 - Al borrar una foto se borra el registro y después el archivo, y las demás se renumeran 0..n-1 (la 0 es la
   portada). Si se borra un registro pero el archivo falla, se registra un aviso y la petición termina bien.
 - `uploads/` está en `.gitignore`: ningún archivo subido entra en Git.
+
+## Catálogo público (RF-03, RF-04, RF-05, RN-01)
+
+Lo que ve cualquier persona en la app al pulsar «Explorar el catálogo». **No exige sesión** y no está
+bajo `/admin`. Si llega un token, se ignora: la respuesta es la misma para todos. Módulo
+`src/modules/catalogo/` (rutas → controlador → servicio → repositorio).
+
+### Regla de visibilidad
+
+- Un servicio se muestra solo si **está activo y su categoría está activa**. Una categoría desactivada
+  oculta sus servicios **sin desactivarlos** (al reactivarla vuelven a aparecer).
+- Una categoría aparece solo si está activa y tiene al menos un servicio visible (que además cumpla `?q=`).
+- Orden: categorías por `orden` y nombre; servicios por nombre; fotos por su orden (la primera es la portada).
+
+### `GET /api/v1/catalogo?q=&categoriaId=`
+
+- `q` (opcional, ≤ 100 caracteres): busca en el **nombre del servicio**, sin distinguir mayúsculas.
+  `%` y `_` se buscan como texto literal.
+- `categoriaId` (opcional, UUID): solo esa categoría. Si está desactivada, no existe o no tiene servicios
+  visibles, la respuesta es `{ "categorias": [] }` (no es un error).
+- 400 `VALIDACION` (ubicación `query`) si `categoriaId` no es un UUID o `q` es demasiado largo.
+
+```json
+{
+  "categorias": [
+    {
+      "id": "09ec41c6-8d03-4175-80c5-18da7848e28e",
+      "nombre": "Murales",
+      "descripcion": "Murales decorativos para interiores.",
+      "servicios": [
+        {
+          "id": "43942354-d6d5-4e98-9f19-62a6a38cfa4e",
+          "nombre": "Mural infantil",
+          "portadaUrl": "http://localhost:3000/uploads/3495016b-064a-423e-b454-5bbfa1f776b5.png",
+          "precioReferencial": { "desde": "120.50", "esReferencial": true }
+        },
+        { "id": "…", "nombre": "Mural abstracto", "portadaUrl": null, "precioReferencial": null }
+      ]
+    }
+  ]
+}
+```
+
+### `GET /api/v1/catalogo/servicios/:id`
+
+```json
+{
+  "servicio": {
+    "id": "43942354-d6d5-4e98-9f19-62a6a38cfa4e",
+    "nombre": "Mural infantil",
+    "categoria": { "id": "09ec41c6-8d03-4175-80c5-18da7848e28e", "nombre": "Murales" },
+    "descripcion": "Mural para habitaciones infantiles",
+    "dimensionesOrientativas": "Pared de hasta 3 m",
+    "observaciones": "Incluye boceto previo",
+    "materialesHabituales": ["Pintura acrílica"],
+    "fotos": [{ "url": "http://localhost:3000/uploads/3495016b-064a-423e-b454-5bbfa1f776b5.png" }],
+    "precioReferencial": { "desde": "120.50", "esReferencial": true }
+  }
+}
+```
+
+- 400 `VALIDACION` si el id no es un UUID (detalle `{ campo: "id", ubicacion: "params" }`).
+- 404 `NO_ENCONTRADO` **«El servicio no existe o no está disponible.»** si el servicio no existe, está
+  desactivado o su categoría está desactivada. Es el **mismo cuerpo** en los tres casos, para no revelar
+  si el servicio existe (RF-05).
+- `descripcion`, `dimensionesOrientativas` y `observaciones` pueden ser `null`; `fotos` y
+  `materialesHabituales` pueden ser `[]`.
+
+### Precio referencial (RN-01), para las apps
+
+`precioReferencial` es `null` si la administradora no ha puesto precio base, o
+`{ "desde": "120.50", "esReferencial": true }`. `desde` es **texto con 2 decimales** (no un número
+decimal: trátalo como texto o en céntimos). La app lo muestra como **«Desde $120.50 (referencial)»**.
+Nunca es un precio final: el precio lo confirma la administradora en la cotización.
+
+### Lista blanca de campos
+
+Las respuestas se construyen campo a campo con DTO públicos (`catalogo.service.ts`), nunca copiando el
+objeto de la base de datos. Solo se exponen estos campos:
+
+| Campo                                                               | Por qué se expone                                                               |
+| ------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| `categorias[].id`                                                   | Para filtrar con `?categoriaId=` y agrupar en la app                            |
+| `categorias[].nombre`, `descripcion`                                | Encabezado de cada grupo del catálogo (RF-03)                                   |
+| `servicios[].id` / `servicio.id`                                    | Para abrir la ficha (`/catalogo/servicios/:id`) y, después, pedir la cotización |
+| `nombre`, `descripcion`, `dimensionesOrientativas`, `observaciones` | Datos registrados del servicio (RF-04)                                          |
+| `servicio.categoria { id, nombre }`                                 | Mostrar la categoría y volver a ella desde la ficha                             |
+| `portadaUrl` / `fotos[].url`                                        | Mostrar las imágenes (URL absoluta; la portada es la primera foto)              |
+| `materialesHabituales` (solo nombres de materiales **activos**)     | Informar de los materiales (RF-04) sin su configuración de costes               |
+| `precioReferencial { desde, esReferencial }`                        | «Desde $X (referencial)» (RN-01)                                                |
+
+**No se exponen nunca:** `activo`/`activa`, `orden`, recuentos de servicios o fotos, fechas, `horasManoObraReferencia`,
+cantidades de referencia, ids, unidades y **precios de los materiales** (son configuración interna de la cotización,
+RF-08), ni de las fotos su `id`, `clave`, `tipoMime`, `tamanoBytes` u `orden`. Las pruebas de lista blanca recorren
+el JSON entero y fallan si aparece cualquier otra clave.
+
+### Caché y CORS
+
+Las respuestas 200 llevan `Cache-Control: public, max-age=60` (son iguales para todos); los errores no se
+cachean. CORS es el general de la API (`CORS_ORIGIN`), y las fotos se sirven sin token desde `/uploads`.
 
 ## Formato de errores
 
